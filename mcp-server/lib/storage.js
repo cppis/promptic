@@ -94,9 +94,19 @@ export class Storage {
       tags: entry.tags || [],
       note: entry.note || '',
       platform: entry.platform || 'claude',
+      parentId: entry.parentId || null,
+      version: 1,
       createdAt: entry.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
+
+    // Auto-increment version if parentId is set
+    if (fullEntry.parentId) {
+      const parent = (this._data.history[projectId] || []).find(e => e.id === fullEntry.parentId);
+      if (parent) {
+        fullEntry.version = (parent.version || 1) + 1;
+      }
+    }
 
     this._data.history[projectId].push(fullEntry);
 
@@ -128,6 +138,54 @@ export class Storage {
       proj.promptCount = this._data.history[projectId].length;
     }
     this._save();
+  }
+
+  // ── Version Chain ──
+
+  async getVersionChain(projectId, entryId) {
+    const entries = this._data.history[projectId] || [];
+    const byId = new Map(entries.map(e => [e.id, e]));
+
+    // Find root by walking up parentId
+    let current = byId.get(entryId);
+    if (!current) return [];
+    while (current.parentId && byId.has(current.parentId)) {
+      current = byId.get(current.parentId);
+    }
+    const rootId = current.id;
+
+    // Collect chain from root downward
+    const chain = [current];
+    const childMap = new Map();
+    for (const e of entries) {
+      if (e.parentId) {
+        childMap.set(e.parentId, [...(childMap.get(e.parentId) || []), e]);
+      }
+    }
+    let node = current;
+    while (childMap.has(node.id)) {
+      const children = childMap.get(node.id);
+      // Pick the child in the same version lineage (first match)
+      node = children[0];
+      chain.push(node);
+    }
+    return chain;
+  }
+
+  async findEntryById(entryId) {
+    for (const [projectId, entries] of Object.entries(this._data.history)) {
+      const entry = entries.find(e => e.id === entryId);
+      if (entry) return { ...entry, projectId };
+    }
+    return null;
+  }
+
+  async findLatestInProject(projectId) {
+    const entries = this._data.history[projectId] || [];
+    if (entries.length === 0) return null;
+    return entries.reduce((latest, e) =>
+      new Date(e.createdAt) > new Date(latest.createdAt) ? e : latest
+    );
   }
 
   // ── Settings ──

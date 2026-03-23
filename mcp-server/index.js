@@ -9,7 +9,7 @@
  * Transport: stdio
  * Storage: ~/.promptlens/data.json (data), ~/.promptlens/settings.json (config)
  *
- * Tools (9):
+ * Tools (12):
  *   analyze_prompt          — Prompt quality analysis (local rules or Claude API)
  *   list_projects           — List all projects with stats
  *   create_project          — Create a new project
@@ -19,6 +19,9 @@
  *   get_stats               — Overall statistics
  *   set_api_key             — Register Claude API key for API analysis mode
  *   get_settings            — View current settings (API key status, model, etc.)
+ *   visualize_project       — Generate HTML dashboard with charts
+ *   compare_prompts         — Diff two prompt versions (text, score, axis)
+ *   get_versions            — Get version chain for a prompt
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -27,6 +30,8 @@ import { z } from 'zod';
 import { Storage } from './lib/storage.js';
 import { analyzePrompt, analyzePromptWithApi } from './lib/analyzer.js';
 import { importClaudeDesktop, importClaudeCode } from './lib/importer.js';
+import { generateDashboardHtml, generateOverviewHtml } from './lib/visualizer.js';
+import { compareEntries } from './lib/differ.js';
 
 const storage = new Storage();
 
@@ -40,14 +45,24 @@ const server = new McpServer({
 // ─────────────────────────────────────────────
 server.tool(
   'analyze_prompt',
-  'Analyze a prompt for quality. Two modes: "local" (default, free, instant 5-axis scoring) or "api" (Claude API 3-color report: Referenced/Inferred/Missing — requires API key). Returns scores, missing elements, and improvement suggestions. IMPORTANT: When the user ends their message with ">> anz" (or ">> 분석" in Korean), treat everything before that command as the prompt to analyze and call this tool automatically.',
+  `Analyze a prompt for quality. Two modes: "local" (default, free, instant 5-axis scoring) or "api" (Claude API 3-color report: Referenced/Inferred/Missing — requires API key). Returns scores, missing elements, and improvement suggestions.
+
+TRIGGER RULES — call this tool automatically when:
+1. Command suffix: user ends message with ">> anz" or ">> 분석". Treat everything before it as the prompt.
+2. Analyze + Run: user ends message with ">> anz+run" or ">> 분석+실행". Treat everything before it as the prompt. After receiving the analysis result, you MUST immediately execute the enhancedPrompt (the improved prompt) as if the user typed it directly. Do NOT just show the improved prompt — actually run it and produce the result.
+3. Deep analyze: user ends message with ">> deep" or ">> 정밀분석". Treat everything before it as the prompt. Run the full deep-analyze pipeline: (1) call analyze_prompt on the original, (2) generate an improved prompt fixing all missing elements, (3) call analyze_prompt again on the improved version, (4) compare and show the score difference. If a projectId is available, save both entries with parentId linking.
+4. Natural language (EN): user says "analyze this prompt", "check this prompt", "rate this prompt", "how good is this prompt", "evaluate my prompt", "review this prompt".
+5. Natural language (KR): user says "이 프롬프트 분석해줘", "프롬프트 점검해줘", "프롬프트 평가해줘", "이거 분석해봐", "프롬프트 리뷰해줘", "이 프롬프트 어때", "이 프롬프트 괜찮아?", "프롬프트 좀 봐줘".
+6. Implicit analysis: user pastes a prompt and asks "이거 괜찮아?", "이거 좀 부족한데", "이거 어떻게 개선해?", "what's wrong with this", "how can I improve this".`,
   {
     prompt: z.string().describe('The prompt text to analyze'),
     mode: z.enum(['local', 'api']).optional().describe('Analysis mode: "local" (free, rule-based) or "api" (Claude API 3-color report). Default: local'),
     projectId: z.string().optional().describe('Optional project ID to save the analysis to history'),
-    tags: z.array(z.string()).optional().describe('Optional tags for the history entry')
+    tags: z.array(z.string()).optional().describe('Optional tags for the history entry'),
+    parentId: z.string().optional().describe('Parent entry ID for version tracking. Links this analysis as a revision of a previous prompt.'),
+    autoRun: z.boolean().optional().describe('When true (triggered by ">> anz+run" or ">> 분석+실행"), the caller MUST execute the enhancedPrompt immediately after showing the analysis. Do not just display it — run it as a new user request.')
   },
-  async ({ prompt, mode, projectId, tags }) => {
+  async ({ prompt, mode, projectId, tags, parentId, autoRun }) => {
     const analysisMode = mode || 'local';
     let result;
 
@@ -84,22 +99,48 @@ server.tool(
     }
 
     // Save to history if projectId provided
+    let savedEntry = null;
     if (projectId) {
-      await storage.addHistoryEntry(projectId, {
+      savedEntry = await storage.addHistoryEntry(projectId, {
         prompt,
         enhanced: result.enhancedPrompt || result.enhanced || '',
         score: result.score,
         axisScores: result.axisScores,
         tags: tags || ['mcp', analysisMode],
         note: `[MCP ${analysisMode}] ${result.summary}`,
-        platform: 'claude'
+        platform: 'claude',
+        parentId: parentId || null
       });
+    }
+
+    // Auto-diff with parent if parentId is set
+    let diff = null;
+    if (parentId && savedEntry) {
+      const parentEntry = await storage.findEntryById(parentId);
+      if (parentEntry) {
+        diff = compareEntries(parentEntry, savedEntry);
+      }
+    }
+
+    const response = { ...result };
+    if (savedEntry) {
+      response.entryId = savedEntry.id;
+      response.version = savedEntry.version;
+    }
+    if (diff) {
+      response.diff = diff;
+    }
+
+    // autoRun: instruct the LLM to execute the enhanced prompt immediately
+    if (autoRun && response.enhancedPrompt) {
+      response.autoRun = true;
+      response._instruction = 'AUTO-RUN MODE: Show the analysis summary briefly, then IMMEDIATELY execute the enhancedPrompt below as if the user typed it. Do not ask for confirmation — just run it and produce the output.';
     }
 
     return {
       content: [{
         type: 'text',
-        text: JSON.stringify(result, null, 2)
+        text: JSON.stringify(response, null, 2)
       }]
     };
   }
@@ -422,6 +463,242 @@ server.tool(
       }]
     };
   }
+);
+
+// ─────────────────────────────────────────────
+// Tool: compare_prompts
+// ─────────────────────────────────────────────
+server.tool(
+  'compare_prompts',
+  'Compare two prompt entries and show the diff: text changes, score changes, 5-axis score changes, and tag changes. Use this to see how a prompt improved between versions. When the user says ">> diff", compare the two most recent entries in the specified project.',
+  {
+    entryIdA: z.string().describe('First (older) entry ID'),
+    entryIdB: z.string().describe('Second (newer) entry ID'),
+    projectId: z.string().optional().describe('Project ID (helps locate entries faster)')
+  },
+  async ({ entryIdA, entryIdB, projectId }) => {
+    let entryA, entryB;
+
+    if (projectId) {
+      const entries = await storage.getHistory(projectId);
+      entryA = entries.find(e => e.id === entryIdA);
+      entryB = entries.find(e => e.id === entryIdB);
+    } else {
+      entryA = await storage.findEntryById(entryIdA);
+      entryB = await storage.findEntryById(entryIdB);
+    }
+
+    if (!entryA) {
+      return { content: [{ type: 'text', text: JSON.stringify({ error: `Entry not found: ${entryIdA}` }, null, 2) }] };
+    }
+    if (!entryB) {
+      return { content: [{ type: 'text', text: JSON.stringify({ error: `Entry not found: ${entryIdB}` }, null, 2) }] };
+    }
+
+    const diff = compareEntries(entryA, entryB);
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify(diff, null, 2)
+      }]
+    };
+  }
+);
+
+// ─────────────────────────────────────────────
+// Tool: get_versions
+// ─────────────────────────────────────────────
+server.tool(
+  'get_versions',
+  'Get the version chain (revision history) of a prompt. Returns all versions linked by parentId, from the original to the latest revision, with score changes between each version.',
+  {
+    entryId: z.string().describe('Any entry ID in the version chain'),
+    projectId: z.string().describe('Project ID containing the entry')
+  },
+  async ({ entryId, projectId }) => {
+    const chain = await storage.getVersionChain(projectId, entryId);
+
+    if (chain.length === 0) {
+      return {
+        content: [{ type: 'text', text: JSON.stringify({ error: `Entry not found: ${entryId}` }, null, 2) }]
+      };
+    }
+
+    if (chain.length === 1) {
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            message: 'This prompt has no linked versions.',
+            entry: {
+              id: chain[0].id,
+              version: chain[0].version || 1,
+              score: chain[0].score,
+              prompt: chain[0].prompt,
+              date: chain[0].createdAt
+            },
+            hint: 'To create a new version, use analyze_prompt with parentId set to this entry ID.'
+          }, null, 2)
+        }]
+      };
+    }
+
+    const versions = chain.map((e, i) => ({
+      version: e.version || i + 1,
+      id: e.id,
+      score: e.score,
+      grade: e.score >= 90 ? 'A' : e.score >= 70 ? 'B' : e.score >= 50 ? 'C' : 'D',
+      scoreChange: i > 0 ? e.score - chain[i - 1].score : 0,
+      prompt: e.prompt.length > 100 ? e.prompt.slice(0, 100) + '...' : e.prompt,
+      date: e.createdAt
+    }));
+
+    const first = chain[0];
+    const last = chain[chain.length - 1];
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          totalVersions: chain.length,
+          improvement: `${first.score} → ${last.score} (${last.score - first.score >= 0 ? '+' : ''}${last.score - first.score}점)`,
+          versions
+        }, null, 2)
+      }]
+    };
+  }
+);
+
+// ─────────────────────────────────────────────
+// Tool: visualize_project
+// ─────────────────────────────────────────────
+server.tool(
+  'visualize_project',
+  'Generate an HTML dashboard with charts for a project or all projects. Includes score trend line chart, 5-axis radar chart, grade distribution donut, tag statistics bar chart, and recent analysis table. The HTML file is saved to ~/.promptlens/ and can be opened in a browser. When the user says ">> viz" or ">> 시각화", generate a dashboard for the most recently active project.',
+  {
+    projectId: z.string().optional().describe('Project ID to visualize. If omitted, generates an overview dashboard for all projects.'),
+    outputPath: z.string().optional().describe('Custom output file path. Default: ~/.promptlens/dashboard-{projectId}.html')
+  },
+  async ({ projectId, outputPath }) => {
+    const fs = await import('fs');
+    const path = await import('path');
+    const os = await import('os');
+
+    const dataDir = path.join(os.homedir(), '.promptlens');
+    let html, filePath;
+
+    if (projectId) {
+      // Single project dashboard
+      const projects = await storage.getProjects();
+      const project = projects.find(p => p.id === projectId || p.name === projectId);
+      if (!project) {
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({ error: `Project not found: ${projectId}`, hint: 'Use list_projects to see available projects.' }, null, 2)
+          }]
+        };
+      }
+      const entries = await storage.getHistory(project.id);
+      if (entries.length === 0) {
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({ error: `No history entries in project "${project.name}".`, hint: 'Analyze some prompts first with analyze_prompt.' }, null, 2)
+          }]
+        };
+      }
+      html = generateDashboardHtml(project, entries);
+      filePath = outputPath || path.join(dataDir, `dashboard-${project.id}.html`);
+    } else {
+      // Overview dashboard for all projects
+      const projects = await storage.getProjects();
+      if (projects.length === 0) {
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({ error: 'No projects found.', hint: 'Create a project first with create_project.' }, null, 2)
+          }]
+        };
+      }
+      const historyMap = {};
+      for (const p of projects) {
+        historyMap[p.id] = await storage.getHistory(p.id);
+      }
+      html = generateOverviewHtml(projects, historyMap);
+      filePath = outputPath || path.join(dataDir, 'dashboard-overview.html');
+    }
+
+    fs.writeFileSync(filePath, html, 'utf-8');
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          message: 'Dashboard generated',
+          filePath,
+          hint: `Open in browser: file://${filePath}`
+        }, null, 2)
+      }]
+    };
+  }
+);
+
+// ─────────────────────────────────────────────
+// MCP Prompts (Workflow Presets)
+// ─────────────────────────────────────────────
+
+server.prompt(
+  'quick-analyze',
+  'Quick prompt analysis — paste a prompt and get instant 5-axis scoring with improvement suggestions.',
+  [
+    { name: 'prompt', description: 'The prompt text to analyze', required: true }
+  ],
+  async ({ prompt }) => ({
+    messages: [{
+      role: 'user',
+      content: {
+        type: 'text',
+        text: `다음 프롬프트를 PromptLens로 분석해줘 (local 모드):\n\n"${prompt}"\n\n5축 점수, 누락 요소, 개선 제안을 보여주고, 개선된 프롬프트도 제안해줘.`
+      }
+    }]
+  })
+);
+
+server.prompt(
+  'deep-analyze',
+  'Deep analysis pipeline — analyze → optimize → save. Runs local analysis, auto-generates an improved version, and saves both to a project for comparison.',
+  [
+    { name: 'prompt', description: 'The prompt text to analyze', required: true },
+    { name: 'project', description: 'Project name to save results', required: false }
+  ],
+  async ({ prompt, project }) => ({
+    messages: [{
+      role: 'user',
+      content: {
+        type: 'text',
+        text: `다음 프롬프트를 PromptLens로 정밀 분석하고 개선해줘:\n\n"${prompt}"\n\n1단계: analyze_prompt로 분석해줘.\n2단계: 분석 결과의 누락 요소를 모두 채운 개선된 프롬프트를 작성해줘.\n3단계: 개선된 프롬프트도 analyze_prompt로 다시 분석해서 점수 변화를 비교해줘.${project ? `\n4단계: 두 결과를 "${project}" 프로젝트에 저장해줘 (개선본은 parentId로 연결).` : ''}`
+      }
+    }]
+  })
+);
+
+server.prompt(
+  'project-report',
+  'Generate a visual dashboard report for a project with score trends, radar charts, and grade distribution.',
+  [
+    { name: 'project', description: 'Project name or ID', required: true }
+  ],
+  async ({ project }) => ({
+    messages: [{
+      role: 'user',
+      content: {
+        type: 'text',
+        text: `PromptLens의 "${project}" 프로젝트 대시보드를 생성해줘. visualize_project 도구를 사용하여 HTML 리포트를 만들고, 주요 통계(평균 점수, 최고/최저, 개선 추이)를 요약해줘.`
+      }
+    }]
+  })
 );
 
 // ─────────────────────────────────────────────

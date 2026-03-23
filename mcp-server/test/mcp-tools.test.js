@@ -266,7 +266,7 @@ describe('MCP Tool — set_api_key', () => {
 // ── Tool: tools/list ──
 
 describe('MCP — tools/list', () => {
-  it('lists all 9 tools', async () => {
+  it('lists all 12 tools', async () => {
     const responses = await callMcp([
       { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }
     ]);
@@ -287,6 +287,9 @@ describe('MCP — tools/list', () => {
     assert.ok(names.includes('get_stats'));
     assert.ok(names.includes('set_api_key'));
     assert.ok(names.includes('get_settings'));
-    assert.equal(tools.length, 9);
+    assert.ok(names.includes('visualize_project'));
+    assert.ok(names.includes('compare_prompts'));
+    assert.ok(names.includes('get_versions'));
+    assert.equal(tools.length, 12);
   });
 });
