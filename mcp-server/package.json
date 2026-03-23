@@ -1,6 +1,6 @@
 {
   "name": "promptlens-mcp",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "PromptLens — AI prompt analysis MCP server for Claude Desktop & Claude Code. Shows how AI reads your prompts with 5-axis scoring and 3-color interpretation reports.",
   "type": "module",
   "main": "index.js",
@@ -9,7 +9,7 @@
   },
   "scripts": {
     "start": "node index.js",
-    "test": "node --test test/"
+    "test": "node --test test/*.test.js"
   },
   "keywords": [
     "mcp",

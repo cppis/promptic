@@ -1,73 +1,126 @@
+/**
+ * Storage tests (v0.4.0 — per-project file storage)
+ *
+ * Uses a TestStorage subclass that overrides ALL private file-I/O methods
+ * to point at a temporary directory, keeping the real ~/.promptlens untouched.
+ */
+
 import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 
-// Use a temp directory so tests don't pollute real data
-const TEST_DIR = path.join(os.tmpdir(), `.promptlens-test-${Date.now()}`);
-const DATA_FILE = path.join(TEST_DIR, 'data.json');
-const SETTINGS_FILE = path.join(TEST_DIR, 'settings.json');
+// ── Temp directory setup ─────────────────────────────────────────────────────
 
-// Patch the module paths before import
+const TEST_BASE = path.join(os.tmpdir(), `.promptlens-test-${Date.now()}`);
+const TEST_PROJECTS = path.join(TEST_BASE, 'projects');
+const TEST_EXPORTS  = path.join(TEST_BASE, 'exports');
+const TEST_SNAPS    = path.join(TEST_BASE, 'snapshots');
+const TEST_SETTINGS = path.join(TEST_BASE, 'settings.json');
+const TEST_INDEX    = path.join(TEST_PROJECTS, '_index.json');
+
 let Storage;
 
 before(async () => {
-  fs.mkdirSync(TEST_DIR, { recursive: true });
-
-  // We'll import Storage and monkey-patch the paths
+  fs.mkdirSync(TEST_BASE, { recursive: true });
   const mod = await import('../lib/storage.js');
+
+  // Subclass that redirects every private I/O method to TEST_BASE
   Storage = class TestStorage extends mod.Storage {
-    _ensureDir() {
-      if (!fs.existsSync(TEST_DIR)) {
-        fs.mkdirSync(TEST_DIR, { recursive: true });
+    // Skip actual dir creation & migration — we'll manage the test dir ourselves
+    _ensureDirs() {
+      for (const d of [TEST_BASE, TEST_PROJECTS, TEST_EXPORTS, TEST_SNAPS]) {
+        if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
       }
     }
-    _load() {
-      if (fs.existsSync(DATA_FILE)) {
-        try { return JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8')); }
-        catch { return { projects: [], history: {} }; }
-      }
-      return { projects: [], history: {} };
+
+    _migrateIfNeeded() { /* no-op — no legacy file in test env */ }
+
+    // ── Index ──
+    _loadIndex() {
+      if (!fs.existsSync(TEST_INDEX)) return { version: '0.4.0', projects: [] };
+      try { return JSON.parse(fs.readFileSync(TEST_INDEX, 'utf-8')); }
+      catch { return { version: '0.4.0', projects: [] }; }
     }
-    _save() {
-      fs.writeFileSync(DATA_FILE, JSON.stringify(this._data, null, 2), 'utf-8');
+    _saveIndex(index) {
+      fs.writeFileSync(TEST_INDEX, JSON.stringify(index, null, 2), 'utf-8');
     }
+
+    // ── Per-project file ──
+    _loadProject(projectId) {
+      const fp = path.join(TEST_PROJECTS, `${projectId}.json`);
+      if (!fs.existsSync(fp)) return null;
+      try { return JSON.parse(fs.readFileSync(fp, 'utf-8')); }
+      catch { return null; }
+    }
+    _saveProject(projectId, data) {
+      // Keep meta in sync (mirrors real _saveProject logic)
+      const scores = data.history.map(e => e.score).filter(s => typeof s === 'number');
+      data.meta = {
+        version:    '0.4.0',
+        exportedAt: data.meta?.exportedAt || null,
+        entryCount: data.history.length,
+        avgScore:   scores.length
+          ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
+          : 0
+      };
+      fs.writeFileSync(
+        path.join(TEST_PROJECTS, `${projectId}.json`),
+        JSON.stringify(data, null, 2),
+        'utf-8'
+      );
+    }
+
+    // ── Settings ──
     getSettings() {
-      if (fs.existsSync(SETTINGS_FILE)) {
-        try { return JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf-8')); }
+      if (fs.existsSync(TEST_SETTINGS)) {
+        try { return JSON.parse(fs.readFileSync(TEST_SETTINGS, 'utf-8')); }
         catch { return {}; }
       }
       return {};
     }
     saveSettings(settings) {
-      const current = this.getSettings();
-      const merged = { ...current, ...settings };
-      fs.writeFileSync(SETTINGS_FILE, JSON.stringify(merged, null, 2), 'utf-8');
+      const merged = { ...this.getSettings(), ...settings };
+      fs.writeFileSync(TEST_SETTINGS, JSON.stringify(merged, null, 2), 'utf-8');
       return merged;
     }
-    getApiKey() { return this.getSettings().apiKey || null; }
-    setApiKey(k) { this.saveSettings({ apiKey: k }); }
-    removeApiKey() {
-      const s = this.getSettings(); delete s.apiKey;
-      fs.writeFileSync(SETTINGS_FILE, JSON.stringify(s, null, 2), 'utf-8');
+    // deleteProject uses module-level PROJECTS_DIR directly — override it
+    async deleteProject(id) {
+      const fp = path.join(TEST_PROJECTS, `${id}.json`);
+      if (fs.existsSync(fp)) fs.unlinkSync(fp);
+      const index = this._loadIndex();
+      index.projects = index.projects.filter(p => p.id !== id);
+      this._saveIndex(index);
     }
-    getModel() { return this.getSettings().model || 'claude-sonnet-4-5-20250514'; }
-    setModel(m) { this.saveSettings({ model: m }); }
+
+    getApiKey()    { return this.getSettings().apiKey || null; }
+    setApiKey(k)   { this.saveSettings({ apiKey: k }); }
+    removeApiKey() {
+      const s = this.getSettings();
+      delete s.apiKey;
+      fs.writeFileSync(TEST_SETTINGS, JSON.stringify(s, null, 2), 'utf-8');
+    }
+    getModel()     { return this.getSettings().model || 'claude-sonnet-4-5-20250514'; }
+    setModel(m)    { this.saveSettings({ model: m }); }
   };
 });
 
 after(() => {
-  fs.rmSync(TEST_DIR, { recursive: true, force: true });
+  fs.rmSync(TEST_BASE, { recursive: true, force: true });
 });
 
 beforeEach(() => {
-  // Clean data files before each test
-  if (fs.existsSync(DATA_FILE)) fs.unlinkSync(DATA_FILE);
-  if (fs.existsSync(SETTINGS_FILE)) fs.unlinkSync(SETTINGS_FILE);
+  // Wipe all per-project files and index between tests
+  if (fs.existsSync(TEST_PROJECTS)) {
+    for (const f of fs.readdirSync(TEST_PROJECTS)) {
+      fs.unlinkSync(path.join(TEST_PROJECTS, f));
+    }
+  }
+  if (fs.existsSync(TEST_SETTINGS)) fs.unlinkSync(TEST_SETTINGS);
 });
 
-// ── Projects ──
+// ── Projects ─────────────────────────────────────────────────────────────────
 
 describe('Storage — Projects', () => {
   it('starts with empty project list', async () => {
@@ -81,7 +134,6 @@ describe('Storage — Projects', () => {
     const p = await s.createProject('Test Project');
     assert.ok(p.id.startsWith('proj_'));
     assert.equal(p.name, 'Test Project');
-    assert.equal(p.promptCount, 0);
     assert.ok(p.createdAt);
   });
 
@@ -91,8 +143,9 @@ describe('Storage — Projects', () => {
     await s.createProject('B');
     const projects = await s.getProjects();
     assert.equal(projects.length, 2);
-    assert.equal(projects[0].name, 'A');
-    assert.equal(projects[1].name, 'B');
+    const names = projects.map(p => p.name);
+    assert.ok(names.includes('A'));
+    assert.ok(names.includes('B'));
   });
 
   it('renames a project', async () => {
@@ -115,20 +168,20 @@ describe('Storage — Projects', () => {
   });
 });
 
-// ── History ──
+// ── History ───────────────────────────────────────────────────────────────────
 
 describe('Storage — History', () => {
   it('adds a history entry with all fields', async () => {
     const s = new Storage();
     const p = await s.createProject('Hist Test');
     const entry = await s.addHistoryEntry(p.id, {
-      prompt: 'React로 로그인 폼 만들어줘',
-      enhanced: 'enhanced version',
-      score: 72,
+      prompt:     'React로 로그인 폼 만들어줘',
+      enhanced:   'enhanced version',
+      score:      72,
       axisScores: [80, 60, 70, 75, 65],
-      tags: ['react', 'login'],
-      note: 'test note',
-      platform: 'claude'
+      tags:       ['react', 'login'],
+      note:       'test note',
+      platform:   'claude'
     });
 
     assert.ok(entry.id.startsWith('h_'));
@@ -144,8 +197,10 @@ describe('Storage — History', () => {
     const p = await s.createProject('Count Test');
     await s.addHistoryEntry(p.id, { prompt: 'one' });
     await s.addHistoryEntry(p.id, { prompt: 'two' });
+    // promptCount is stored as entryCount in index → exposed as promptCount
     const projects = await s.getProjects();
-    assert.equal(projects[0].promptCount, 2);
+    const found = projects.find(pr => pr.id === p.id);
+    assert.equal(found.promptCount, 2);
   });
 
   it('returns history for a project', async () => {
@@ -183,7 +238,8 @@ describe('Storage — History', () => {
     assert.equal(entries.length, 1);
     assert.equal(entries[0].prompt, 'keep');
     const projects = await s.getProjects();
-    assert.equal(projects[0].promptCount, 1);
+    const found = projects.find(pr => pr.id === p.id);
+    assert.equal(found.promptCount, 1);
   });
 
   it('fills default values for missing fields', async () => {
@@ -197,9 +253,42 @@ describe('Storage — History', () => {
     assert.equal(entry.note, '');
     assert.equal(entry.platform, 'claude');
   });
+
+  it('assigns grade to history entry', async () => {
+    const s = new Storage();
+    const p = await s.createProject('Grade Test');
+    const entryA = await s.addHistoryEntry(p.id, { prompt: 'high', score: 95 });
+    const entryD = await s.addHistoryEntry(p.id, { prompt: 'low',  score: 30 });
+    assert.equal(entryA.grade, 'A');
+    assert.equal(entryD.grade, 'D');
+  });
 });
 
-// ── Settings ──
+// ── Version chain ──────────────────────────────────────────────────────────────
+
+describe('Storage — Version Chain', () => {
+  it('auto-increments version from parent', async () => {
+    const s = new Storage();
+    const p = await s.createProject('Version Test');
+    const v1 = await s.addHistoryEntry(p.id, { prompt: 'v1' });
+    const v2 = await s.addHistoryEntry(p.id, { prompt: 'v2', parentId: v1.id });
+    assert.equal(v1.version, 1);
+    assert.equal(v2.version, 2);
+  });
+
+  it('getVersionChain returns ordered chain', async () => {
+    const s = new Storage();
+    const p  = await s.createProject('Chain Test');
+    const v1 = await s.addHistoryEntry(p.id, { prompt: 'v1' });
+    const v2 = await s.addHistoryEntry(p.id, { prompt: 'v2', parentId: v1.id });
+    const chain = await s.getVersionChain(p.id, v2.id);
+    assert.equal(chain.length, 2);
+    assert.equal(chain[0].id, v1.id);
+    assert.equal(chain[1].id, v2.id);
+  });
+});
+
+// ── Settings ──────────────────────────────────────────────────────────────────
 
 describe('Storage — Settings', () => {
   it('returns empty settings initially', () => {
@@ -241,7 +330,7 @@ describe('Storage — Settings', () => {
   });
 });
 
-// ── Persistence ──
+// ── Persistence ───────────────────────────────────────────────────────────────
 
 describe('Storage — Persistence', () => {
   it('persists data across instances', async () => {

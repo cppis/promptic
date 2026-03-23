@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 
 /**
- * PromptLens MCP Server (v0.3.0)
+ * PromptLens MCP Server (v0.4.0)
  *
  * MCP-only architecture — all PromptLens features accessible via
  * Claude Desktop and Claude Code as native MCP tools.
  *
  * Transport: stdio
- * Storage: ~/.promptlens/data.json (data), ~/.promptlens/settings.json (config)
+ * Storage: ~/.promptlens/projects/{id}.json (per-project), ~/.promptlens/settings.json (config)
  *
- * Tools (12):
+ * Tools (16):
  *   analyze_prompt          — Prompt quality analysis (local rules or Claude API)
  *   list_projects           — List all projects with stats
  *   create_project          — Create a new project
@@ -22,22 +22,30 @@
  *   visualize_project       — Generate HTML dashboard with charts
  *   compare_prompts         — Diff two prompt versions (text, score, axis)
  *   get_versions            — Get version chain for a prompt
+ *   export_project          — Export project to JSON/Markdown/CSV file
+ *   import_project          — Import a .promptlens.json file into a project
+ *   query_history           — Advanced history query with score/date/grade/tag filters
+ *   snapshot_project        — Save a timestamped project snapshot + diff between snapshots
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { Storage } from './lib/storage.js';
+import fs from 'fs';
+import path from 'path';
+import { Storage, DATA_DIR, EXPORTS_DIR, SNAPSHOTS_DIR } from './lib/storage.js';
 import { analyzePrompt, analyzePromptWithApi } from './lib/analyzer.js';
 import { importClaudeDesktop, importClaudeCode } from './lib/importer.js';
 import { generateDashboardHtml, generateOverviewHtml } from './lib/visualizer.js';
 import { compareEntries } from './lib/differ.js';
+import { toJson, toMarkdown, toCsv, fromJson } from './lib/exporter.js';
+import { filterEntries, sortEntries, summarizeFilter } from './lib/query.js';
 
 const storage = new Storage();
 
 const server = new McpServer({
   name: 'promptlens',
-  version: '0.3.0'
+  version: '0.4.0'
 });
 
 // ─────────────────────────────────────────────
@@ -644,6 +652,301 @@ server.tool(
     };
   }
 );
+
+// ─────────────────────────────────────────────
+// Tool: export_project
+// ─────────────────────────────────────────────
+server.tool(
+  'export_project',
+  'Export a project\'s prompt history to a local file. Formats: "json" (full fidelity, importable), "markdown" (human-readable report), "csv" (spreadsheet). Supports partial export via filter. When the user says "프로젝트를 내보내줘", "export project", or "저장해줘 [format]", call this tool.',
+  {
+    projectId:  z.string().describe('Project ID to export'),
+    format:     z.enum(['json', 'markdown', 'csv']).optional().describe('Export format. Default: json'),
+    outputPath: z.string().optional().describe('File save path. Default: ~/.promptlens/exports/{name}-{date}.{ext}'),
+    scoreMin:   z.number().optional().describe('Export only entries with score >= this value'),
+    scoreMax:   z.number().optional().describe('Export only entries with score <= this value'),
+    grade:      z.array(z.enum(['A','B','C','D'])).optional().describe('Export only entries with these grades'),
+    dateFrom:   z.string().optional().describe('Export entries from this date (YYYY-MM-DD)'),
+    dateTo:     z.string().optional().describe('Export entries up to this date (YYYY-MM-DD)'),
+    tags:       z.array(z.string()).optional().describe('Export only entries with ALL these tags')
+  },
+  async ({ projectId, format = 'json', outputPath, ...filterParams }) => {
+    const raw = storage.loadProjectRaw(projectId);
+    if (!raw) {
+      return { content: [{ type: 'text', text: JSON.stringify({ error: `Project not found: ${projectId}` }, null, 2) }] };
+    }
+
+    // Apply filter if any filter params are provided
+    const hasFilter = Object.values(filterParams).some(v => v !== undefined);
+    const entries   = hasFilter ? filterEntries(raw.history, filterParams) : raw.history;
+
+    // Serialize
+    let content;
+    let ext;
+    if (format === 'markdown') { content = toMarkdown(raw.project, entries); ext = 'md'; }
+    else if (format === 'csv') { content = toCsv(raw.project, entries);      ext = 'csv'; }
+    else                       { content = toJson(raw.project, entries);      ext = 'promptlens.json'; }
+
+    // Determine output path (restrict to DATA_DIR subtree for security)
+    const safeName = raw.project.name.replace(/[^a-zA-Z0-9가-힣_-]/g, '-');
+    const dateStr  = new Date().toISOString().slice(0, 10);
+    const defaultPath = path.join(EXPORTS_DIR, `${safeName}-${dateStr}.${ext}`);
+    let filePath = outputPath || defaultPath;
+    // Security: ensure path stays within DATA_DIR
+    if (!path.resolve(filePath).startsWith(path.resolve(DATA_DIR))) {
+      filePath = defaultPath;
+    }
+
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, content, 'utf-8');
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          message:    'Export complete',
+          filePath,
+          format,
+          entryCount: entries.length,
+          totalEntries: raw.history.length,
+          filtered:   hasFilter
+        }, null, 2)
+      }]
+    };
+  }
+);
+
+// ─────────────────────────────────────────────
+// Tool: import_project
+// ─────────────────────────────────────────────
+server.tool(
+  'import_project',
+  'Import a .promptlens.json file into PromptLens. Two modes: "new" creates a fresh project, "merge" appends entries to an existing project (deduplication by entry ID). When the user says "import", "가져와줘", or references a .promptlens.json file, call this tool.',
+  {
+    filePath:    z.string().describe('Path to the .promptlens.json file to import'),
+    mode:        z.enum(['new', 'merge']).optional().describe('"new" creates a new project (default), "merge" appends to an existing project with the same ID'),
+    projectName: z.string().optional().describe('Override project name when using "new" mode')
+  },
+  async ({ filePath, mode = 'new', projectName }) => {
+    if (!fs.existsSync(filePath)) {
+      return { content: [{ type: 'text', text: JSON.stringify({ error: `File not found: ${filePath}` }, null, 2) }] };
+    }
+
+    let parsed;
+    try {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      parsed = fromJson(content);
+    } catch (err) {
+      return { content: [{ type: 'text', text: JSON.stringify({ error: err.message }, null, 2) }] };
+    }
+
+    const { project: srcProject, history: srcHistory, warnings } = parsed;
+    let result;
+
+    if (mode === 'merge') {
+      // Merge into existing project with same ID
+      const existing = await storage.getHistory(srcProject.id);
+      if (existing === null) {
+        return { content: [{ type: 'text', text: JSON.stringify({ error: `No project with id "${srcProject.id}" found. Use mode "new" to create it.` }, null, 2) }] };
+      }
+      const existingIds = new Set(existing.map(e => e.id));
+      const toImport    = srcHistory.filter(e => !existingIds.has(e.id));
+      for (const entry of toImport) {
+        await storage.addHistoryEntry(srcProject.id, entry);
+      }
+      result = { projectId: srcProject.id, projectName: srcProject.name, mode: 'merge', imported: toImport.length, skipped: srcHistory.length - toImport.length };
+    } else {
+      // Create new project
+      const newProject = await storage.createProject(projectName || srcProject.name);
+      for (const entry of srcHistory) {
+        await storage.addHistoryEntry(newProject.id, { ...entry, projectId: newProject.id });
+      }
+      result = { projectId: newProject.id, projectName: newProject.name, mode: 'new', imported: srcHistory.length, skipped: 0 };
+    }
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({ ...result, warnings: warnings || [] }, null, 2)
+      }]
+    };
+  }
+);
+
+// ─────────────────────────────────────────────
+// Tool: query_history
+// ─────────────────────────────────────────────
+server.tool(
+  'query_history',
+  'Advanced history query with filters: score range, grade, date range, tags (AND/OR), missing elements, version roots only. More powerful than get_history. When the user asks to find prompts by score, date, grade, tag, or missing element — e.g. "점수 60점 미만", "이번 달 D등급", "output_format이 누락된 것" — call this tool.',
+  {
+    projectId:    z.string().describe('Project ID to query'),
+    scoreMin:     z.number().optional().describe('Minimum score (inclusive)'),
+    scoreMax:     z.number().optional().describe('Maximum score (inclusive)'),
+    grade:        z.array(z.enum(['A','B','C','D'])).optional().describe('Filter by grade(s)'),
+    dateFrom:     z.string().optional().describe('Start date YYYY-MM-DD (inclusive)'),
+    dateTo:       z.string().optional().describe('End date YYYY-MM-DD (inclusive)'),
+    tags:         z.array(z.string()).optional().describe('AND tag filter — all tags must be present'),
+    tagsAny:      z.array(z.string()).optional().describe('OR tag filter — at least one tag must be present'),
+    missing:      z.array(z.string()).optional().describe('Filter entries that include ALL these missing elements'),
+    versionsOnly: z.boolean().optional().describe('Return only version-chain root entries (parentId === null)'),
+    search:       z.string().optional().describe('Full-text search in prompt and note fields'),
+    limit:        z.number().optional().describe('Max results to return. Default: 20'),
+    sortBy:       z.enum(['score_asc','score_desc','date_asc','date_desc']).optional().describe('Sort order. Default: date_desc')
+  },
+  async ({ projectId, limit = 20, sortBy = 'date_desc', ...filterParams }) => {
+    const history = await storage.getHistory(projectId);
+    if (!history) {
+      return { content: [{ type: 'text', text: JSON.stringify({ error: `Project not found: ${projectId}` }, null, 2) }] };
+    }
+
+    const matched = filterEntries(history, filterParams);
+    const sorted  = sortEntries(matched, sortBy);
+    const limited = sorted.slice(0, limit);
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          entries:      limited,
+          total:        matched.length,
+          returned:     limited.length,
+          appliedFilter: summarizeFilter(filterParams),
+          sortBy
+        }, null, 2)
+      }]
+    };
+  }
+);
+
+// ─────────────────────────────────────────────
+// Tool: snapshot_project
+// ─────────────────────────────────────────────
+server.tool(
+  'snapshot_project',
+  'Save a timestamped snapshot of a project\'s current state. Optionally compare with a previous snapshot to show score improvement, grade distribution change, and missing-element trend. When the user says "스냅샷 저장", "snapshot", or "지난 스냅샷과 비교" — call this tool.',
+  {
+    projectId:   z.string().describe('Project ID to snapshot'),
+    label:       z.string().optional().describe('Optional label/description for this snapshot'),
+    compareWith: z.string().optional().describe('Filename of a previous snapshot to diff against (e.g. "MyProject-snap-2026-02-01T09-00-00.json")')
+  },
+  async ({ projectId, label = '', compareWith }) => {
+    const raw = storage.loadProjectRaw(projectId);
+    if (!raw) {
+      return { content: [{ type: 'text', text: JSON.stringify({ error: `Project not found: ${projectId}` }, null, 2) }] };
+    }
+
+    // Build snapshot
+    const ts       = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const safeName = raw.project.name.replace(/[^a-zA-Z0-9가-힣_-]/g, '-');
+    const snapName = `${safeName}-snap-${ts}.json`;
+    const snapPath = path.join(SNAPSHOTS_DIR, snapName);
+
+    const snapshot = {
+      ...raw,
+      meta: {
+        ...raw.meta,
+        snapshotAt: new Date().toISOString(),
+        label
+      }
+    };
+    fs.mkdirSync(SNAPSHOTS_DIR, { recursive: true });
+    fs.writeFileSync(snapPath, JSON.stringify(snapshot, null, 2), 'utf-8');
+
+    const result = {
+      message:     'Snapshot saved',
+      snapshotPath: snapPath,
+      entryCount:  raw.history.length,
+      avgScore:    raw.meta?.avgScore ?? 0,
+      label
+    };
+
+    // Compare with previous snapshot
+    if (compareWith) {
+      const oldPath = path.join(SNAPSHOTS_DIR, compareWith);
+      if (!fs.existsSync(oldPath)) {
+        result.diffError = `Snapshot file not found: ${compareWith}`;
+      } else {
+        try {
+          const old = JSON.parse(fs.readFileSync(oldPath, 'utf-8'));
+          result.diff = buildSnapshotDiff(old, snapshot);
+        } catch (err) {
+          result.diffError = `Failed to parse snapshot: ${err.message}`;
+        }
+      }
+    }
+
+    // List available snapshots for this project
+    const allSnaps = fs.readdirSync(SNAPSHOTS_DIR)
+      .filter(f => f.startsWith(safeName) && f.endsWith('.json'))
+      .sort()
+      .reverse()
+      .slice(0, 5);
+    result.recentSnapshots = allSnaps;
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify(result, null, 2)
+      }]
+    };
+  }
+);
+
+// ── Snapshot diff helper ──────────────────────────────────────────────────────
+function buildSnapshotDiff(oldSnap, newSnap) {
+  const oldH = oldSnap.history || [];
+  const newH = newSnap.history || [];
+
+  const oldScores = oldH.map(e => e.score || 0);
+  const newScores = newH.map(e => e.score || 0);
+  const oldAvg    = oldScores.length ? Math.round(oldScores.reduce((a, b) => a + b, 0) / oldScores.length) : 0;
+  const newAvg    = newScores.length ? Math.round(newScores.reduce((a, b) => a + b, 0) / newScores.length) : 0;
+
+  // Grade distribution
+  function gradeDist(entries) {
+    const d = { A: 0, B: 0, C: 0, D: 0 };
+    for (const e of entries) {
+      const g = e.grade || (e.score >= 90 ? 'A' : e.score >= 70 ? 'B' : e.score >= 50 ? 'C' : 'D');
+      d[g]++;
+    }
+    return d;
+  }
+  const oldDist = gradeDist(oldH);
+  const newDist = gradeDist(newH);
+
+  // Missing element frequency
+  function missingFreq(entries) {
+    const f = {};
+    for (const e of entries) for (const m of (e.missingElements || [])) f[m] = (f[m] || 0) + 1;
+    return f;
+  }
+  const oldMissing = missingFreq(oldH);
+  const newMissing = missingFreq(newH);
+  const allMissing = new Set([...Object.keys(oldMissing), ...Object.keys(newMissing)]);
+  const missingDiff = {};
+  for (const m of allMissing) {
+    const oldVal = oldMissing[m] || 0;
+    const newVal = newMissing[m] || 0;
+    if (oldVal !== newVal) missingDiff[m] = { before: oldVal, after: newVal, delta: newVal - oldVal };
+  }
+
+  const oldAt = oldSnap.meta?.snapshotAt || '?';
+  const newAt = newSnap.meta?.snapshotAt || new Date().toISOString();
+
+  return {
+    period:         { from: oldAt.slice(0, 10), to: newAt.slice(0, 10) },
+    entryCount:     { before: oldH.length,  after: newH.length,  delta: newH.length - oldH.length },
+    avgScore:       { before: oldAvg,        after: newAvg,       delta: newAvg - oldAvg },
+    gradeDistribution: {
+      before: oldDist,
+      after:  newDist,
+      delta:  { A: newDist.A - oldDist.A, B: newDist.B - oldDist.B, C: newDist.C - oldDist.C, D: newDist.D - oldDist.D }
+    },
+    missingElementChanges: missingDiff,
+    summary: `분석 수 ${oldH.length}→${newH.length} (${newH.length - oldH.length >= 0 ? '+' : ''}${newH.length - oldH.length}), 평균 점수 ${oldAvg}→${newAvg} (${newAvg - oldAvg >= 0 ? '+' : ''}${newAvg - oldAvg}점)`
+  };
+}
 
 // ─────────────────────────────────────────────
 // MCP Prompts (Workflow Presets)

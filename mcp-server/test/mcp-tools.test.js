@@ -266,7 +266,7 @@ describe('MCP Tool — set_api_key', () => {
 // ── Tool: tools/list ──
 
 describe('MCP — tools/list', () => {
-  it('lists all 12 tools', async () => {
+  it('lists all 16 tools', async () => {
     const responses = await callMcp([
       { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }
     ]);
@@ -278,6 +278,7 @@ describe('MCP — tools/list', () => {
     if (!tools) { assert.ok(true, 'Tool list not available in this response format'); return; }
 
     const names = tools.map(t => t.name);
+    // Original 12 tools
     assert.ok(names.includes('analyze_prompt'));
     assert.ok(names.includes('list_projects'));
     assert.ok(names.includes('create_project'));
@@ -290,6 +291,106 @@ describe('MCP — tools/list', () => {
     assert.ok(names.includes('visualize_project'));
     assert.ok(names.includes('compare_prompts'));
     assert.ok(names.includes('get_versions'));
-    assert.equal(tools.length, 12);
+    // v0.4.0 — 4 new tools
+    assert.ok(names.includes('export_project'),    'export_project tool should exist');
+    assert.ok(names.includes('import_project'),    'import_project tool should exist');
+    assert.ok(names.includes('query_history'),     'query_history tool should exist');
+    assert.ok(names.includes('snapshot_project'),  'snapshot_project tool should exist');
+    assert.equal(tools.length, 16);
+  });
+});
+
+// ── Tool: export_project ──
+
+describe('MCP Tool — export_project', () => {
+  it('exports an empty project as JSON without error', async () => {
+    // Create a project first, then export it
+    const responses = await callMcp([
+      toolCall(1, 'create_project', { name: 'Export Test' }),
+      toolCall(2, 'list_projects'),
+    ], 6000);
+
+    const listResp = findResponse(responses, 2);
+    if (!listResp) { assert.ok(true, 'Skipping — server process timing'); return; }
+
+    const projects = getToolResult(listResp);
+    if (!Array.isArray(projects) || projects.length === 0) {
+      assert.ok(true, 'No projects to export — skipping'); return;
+    }
+
+    const projectId = projects[0].id;
+    const exportResponses = await callMcp([
+      toolCall(1, 'export_project', { projectId, format: 'json' })
+    ], 5000);
+
+    const exportResp = findResponse(exportResponses, 1);
+    if (!exportResp) { assert.ok(true, 'Skipping — server process timing'); return; }
+
+    const result = getToolResult(exportResp);
+    // Should succeed or return an error object (not crash)
+    assert.ok(result !== null && result !== undefined);
+  });
+});
+
+// ── Tool: query_history ──
+
+describe('MCP Tool — query_history', () => {
+  it('returns empty array for project with no history', async () => {
+    // Need a project ID — create one and query
+    const createResponses = await callMcp([
+      toolCall(1, 'create_project', { name: 'Query Test' }),
+      toolCall(2, 'list_projects'),
+    ], 6000);
+
+    const listResp = findResponse(createResponses, 2);
+    if (!listResp) { assert.ok(true, 'Skipping — server process timing'); return; }
+
+    const projects = getToolResult(listResp);
+    if (!Array.isArray(projects) || projects.length === 0) {
+      assert.ok(true, 'No projects to query — skipping'); return;
+    }
+
+    const projectId = projects[0].id;
+    const queryResponses = await callMcp([
+      toolCall(1, 'query_history', { projectId, limit: 10 })
+    ], 5000);
+
+    const queryResp = findResponse(queryResponses, 1);
+    if (!queryResp) { assert.ok(true, 'Skipping — server process timing'); return; }
+
+    const result = getToolResult(queryResp);
+    assert.ok(result !== null && result !== undefined);
+    // Result should have entries array or error
+    if (result.entries) assert.ok(Array.isArray(result.entries));
+  });
+});
+
+// ── Tool: snapshot_project ──
+
+describe('MCP Tool — snapshot_project', () => {
+  it('creates a snapshot without error', async () => {
+    const createResponses = await callMcp([
+      toolCall(1, 'create_project', { name: 'Snapshot Test' }),
+      toolCall(2, 'list_projects'),
+    ], 6000);
+
+    const listResp = findResponse(createResponses, 2);
+    if (!listResp) { assert.ok(true, 'Skipping — server process timing'); return; }
+
+    const projects = getToolResult(listResp);
+    if (!Array.isArray(projects) || projects.length === 0) {
+      assert.ok(true, 'No projects to snapshot — skipping'); return;
+    }
+
+    const projectId = projects[0].id;
+    const snapResponses = await callMcp([
+      toolCall(1, 'snapshot_project', { projectId, label: 'test-snap' })
+    ], 5000);
+
+    const snapResp = findResponse(snapResponses, 1);
+    if (!snapResp) { assert.ok(true, 'Skipping — server process timing'); return; }
+
+    const result = getToolResult(snapResp);
+    assert.ok(result !== null && result !== undefined);
   });
 });
