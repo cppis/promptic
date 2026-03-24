@@ -7,6 +7,9 @@
 [![Node.js](https://img.shields.io/node/v/promptlens-mcp?color=339933&logo=node.js&logoColor=white)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/cppis/prompt-lens/blob/main/LICENSE)
 [![MCP Compatible](https://img.shields.io/badge/MCP-compatible-blueviolet?logo=anthropic&logoColor=white)](https://modelcontextprotocol.io/)
+[![GitHub release](https://img.shields.io/github/v/release/cppis/prompt-lens?logo=github)](https://github.com/cppis/prompt-lens/releases)
+[![GitHub last commit](https://img.shields.io/github/last-commit/cppis/prompt-lens?logo=github)](https://github.com/cppis/prompt-lens/commits/main)
+[![GitHub issues](https://img.shields.io/github/issues/cppis/prompt-lens?logo=github)](https://github.com/cppis/prompt-lens/issues)
 [![GitHub stars](https://img.shields.io/github/stars/cppis/prompt-lens?style=social)](https://github.com/cppis/prompt-lens)
 
 PromptLens는 Claude Desktop과 Claude Code에서 동작하는 MCP(Model Context Protocol) 서버입니다.
