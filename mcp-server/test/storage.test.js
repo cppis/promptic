@@ -2,7 +2,7 @@
  * Storage tests (v0.4.0 — per-project file storage)
  *
  * Uses a TestStorage subclass that overrides ALL private file-I/O methods
- * to point at a temporary directory, keeping the real ~/.prompatic untouched.
+ * to point at a temporary directory, keeping the real ~/.promptic untouched.
  */
 
 import { describe, it, before, after, beforeEach } from 'node:test';
@@ -13,7 +13,7 @@ import os from 'os';
 
 // ── Temp directory setup ─────────────────────────────────────────────────────
 
-const TEST_BASE = path.join(os.tmpdir(), `.prompatic-test-${Date.now()}`);
+const TEST_BASE = path.join(os.tmpdir(), `.promptic-test-${Date.now()}`);
 const TEST_PROJECTS = path.join(TEST_BASE, 'projects');
 const TEST_EXPORTS  = path.join(TEST_BASE, 'exports');
 const TEST_SNAPS    = path.join(TEST_BASE, 'snapshots');

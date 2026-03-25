@@ -1,10 +1,10 @@
-# Prompatic — Getting Started
+# Promptic — Getting Started
 
 [![EN](https://img.shields.io/badge/lang-EN-blue)](README.md) [![KO](https://img.shields.io/badge/lang-한국어-brightgreen)](README.ko.md)
 
-[![npm version](https://img.shields.io/npm/v/prompatic?color=cb3837&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cppis/promptic)
-[![npm downloads](https://img.shields.io/npm/dm/prompatic?color=cb3837&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cppis/promptic)
-[![Node.js](https://img.shields.io/node/v/prompatic?color=339933&logo=node.js&logoColor=white)](https://nodejs.org/)
+[![npm version](https://img.shields.io/npm/v/promptic?color=cb3837&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cppis/promptic)
+[![npm downloads](https://img.shields.io/npm/dm/promptic?color=cb3837&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cppis/promptic)
+[![Node.js](https://img.shields.io/node/v/promptic?color=339933&logo=node.js&logoColor=white)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/cppis/prompt-lens/blob/main/LICENSE)
 [![MCP Compatible](https://img.shields.io/badge/MCP-compatible-blueviolet?logo=anthropic&logoColor=white)](https://modelcontextprotocol.io/)
 [![GitHub release](https://img.shields.io/github/v/release/cppis/prompt-lens?logo=github)](https://github.com/cppis/prompt-lens/releases)
@@ -12,12 +12,12 @@
 [![GitHub issues](https://img.shields.io/github/issues/cppis/prompt-lens?logo=github)](https://github.com/cppis/prompt-lens/issues)
 [![GitHub stars](https://img.shields.io/github/stars/cppis/prompt-lens?style=social)](https://github.com/cppis/prompt-lens)
 
-Prompatic is an MCP (Model Context Protocol) server for Claude Desktop and Claude Code that makes your prompts visible — what the AI understood, what it guessed, and what it couldn't know.
+Promptic is an MCP (Model Context Protocol) server for Claude Desktop and Claude Code that makes your prompts visible — what the AI understood, what it guessed, and what it couldn't know.
 
 Trigger with `>> anz`, `>> 분석`, or just say "analyze this prompt."
 No API key required for local mode.
 
-> Get Prompatic installed and analyze your first prompt in 5 minutes.
+> Get Promptic installed and analyze your first prompt in 5 minutes.
 
 ---
 
@@ -38,18 +38,18 @@ cd prompt-lens/mcp-server
 npm install
 ```
 
-Run the setup script to register Prompatic with Claude Desktop automatically:
+Run the setup script to register Promptic with Claude Desktop automatically:
 
 ```bash
 ./scripts/setup-claude-desktop.sh
 ```
 
-The script detects your OS and adds Prompatic to `claude_desktop_config.json` without affecting existing MCP configurations.
+The script detects your OS and adds Promptic to `claude_desktop_config.json` without affecting existing MCP configurations.
 
 **For Claude Code:**
 
 ```bash
-claude mcp add prompatic node /your/path/to/prompt-lens/mcp-server/index.js
+claude mcp add promptic node /your/path/to/prompt-lens/mcp-server/index.js
 ```
 
 <details>
@@ -63,7 +63,7 @@ claude mcp add prompatic node /your/path/to/prompt-lens/mcp-server/index.js
 ```json
 {
   "mcpServers": {
-    "prompatic": {
+    "promptic": {
       "command": "node",
       "args": ["/your/path/to/prompt-lens/mcp-server/index.js"]
     }
@@ -81,7 +81,7 @@ Once published to npm, no cloning is required.
 ```json
 {
   "mcpServers": {
-    "prompatic": {
+    "promptic": {
       "command": "npx",
       "args": ["-y", "@cppis/promptic"]
     }
@@ -92,7 +92,7 @@ Once published to npm, no cloning is required.
 **Claude Code:**
 
 ```bash
-claude mcp add prompatic -- npx -y prompatic
+claude mcp add promptic -- npx -y promptic
 ```
 
 ---
@@ -101,7 +101,7 @@ claude mcp add prompatic -- npx -y prompatic
 
 After saving the config file, **fully quit and relaunch Claude Desktop**.
 
-When registered successfully, the MCP tool icon (🔧) appears in the bottom-right of the input area and `prompatic` is listed in the tools menu.
+When registered successfully, the MCP tool icon (🔧) appears in the bottom-right of the input area and `promptic` is listed in the tools menu.
 
 **Verify in Claude Code:**
 
@@ -109,13 +109,13 @@ When registered successfully, the MCP tool icon (🔧) appears in the bottom-rig
 claude mcp list
 ```
 
-If `prompatic` appears in the output, you're good to go.
+If `promptic` appears in the output, you're good to go.
 
 ---
 
 ## Step 3. Analyze Your First Prompt
 
-Prompatic is **triggered automatically** when it detects any of the following:
+Promptic is **triggered automatically** when it detects any of the following:
 
 ### Trigger Rules
 
@@ -175,7 +175,7 @@ Build a login form in React >> anz
 Analyze this prompt: "Build a login form in React"
 ```
 
-Prompatic responds automatically:
+Promptic responds automatically:
 
 ```
 📊 Overall score: 43/100 (Grade D)
@@ -202,7 +202,7 @@ Prompatic responds automatically:
 
 ### MCP Prompts Workflow (Claude Desktop `/` menu)
 
-Type `/` in the Claude Desktop chat input to access Prompatic workflow presets:
+Type `/` in the Claude Desktop chat input to access Promptic workflow presets:
 
 | Preset | Description |
 |--------|-------------|
@@ -227,7 +227,7 @@ Type `/` in the Claude Desktop chat input to access Prompatic workflow presets:
 | Analyze + run immediately | `... >> anz+run` or `... >> 분석+실행` |
 | Deep analysis (4-step) | `... >> deep` or `... >> 정밀분석` |
 | Analyze via natural language | `"Analyze this prompt: ..."` |
-| Create a project | `"Create a project called 'my-project' in Prompatic"` |
+| Create a project | `"Create a project called 'my-project' in Promptic"` |
 | Set active project | `"Set 'my-project' as the active project"` |
 | Visualize project | `... >> viz` or `... >> 시각화` |
 | Compare prompts | `... >> diff` |

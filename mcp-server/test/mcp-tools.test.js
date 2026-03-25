@@ -17,7 +17,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_PATH = path.join(__dirname, '..', 'index.js');
 
 // Clean up any test data
-const PROMPTIC_DIR = path.join(os.homedir(), '.prompatic');
+const PROMPTIC_DIR = path.join(os.homedir(), '.promptic');
 const DATA_FILE = path.join(PROMPTIC_DIR, 'data.json');       // legacy (kept for compat)
 const PROJECTS_DIR = path.join(PROMPTIC_DIR, 'projects');     // v0.4.0+ storage
 const SETTINGS_FILE = path.join(PROMPTIC_DIR, 'settings.json');

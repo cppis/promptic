@@ -1,5 +1,5 @@
 /**
- * Prompatic — Project Export / Import (v0.4.0)
+ * Promptic — Project Export / Import (v0.4.0)
  *
  * Formats:
  *   JSON     — full fidelity, importable
@@ -49,7 +49,7 @@ function axisObj(axisScores) {
 // ── JSON ──────────────────────────────────────────────────────────────────────
 
 /**
- * Serialize a project + entries to a .prompatic.json string.
+ * Serialize a project + entries to a .promptic.json string.
  * @param {object} project   — project metadata
  * @param {Array}  entries   — history entries (filtered or full)
  * @returns {string} JSON string
@@ -57,7 +57,7 @@ function axisObj(axisScores) {
 export function toJson(project, entries) {
   return JSON.stringify({
     _schema:  SCHEMA_VERSION,
-    _tool:    'prompatic',
+    _tool:    'promptic',
     project:  { ...project, updatedAt: new Date().toISOString() },
     history:  entries,
     meta: {
@@ -71,7 +71,7 @@ export function toJson(project, entries) {
 }
 
 /**
- * Parse and validate a .prompatic.json string.
+ * Parse and validate a .promptic.json string.
  * @returns {{ project, history, meta }} or throws Error
  */
 export function fromJson(content) {
@@ -126,7 +126,7 @@ export function toMarkdown(project, entries) {
   const endDate   = entries.length ? fmtDate(sorted[0]?.createdAt) : '—';
 
   const lines = [
-    `# ${project.name} — Prompatic 분석 리포트`,
+    `# ${project.name} — Promptic 분석 리포트`,
     `> 기간: ${startDate} ~ ${endDate} | 총 ${entries.length}개 분석 | 평균 점수: ${avgScore}/100`,
     '',
     '## 요약',

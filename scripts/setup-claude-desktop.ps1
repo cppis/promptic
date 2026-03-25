@@ -1,10 +1,10 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  Prompatic - Claude Desktop MCP setup script (Windows PowerShell)
+  Promptic - Claude Desktop MCP setup script (Windows PowerShell)
 
 .DESCRIPTION
-  Registers Prompatic MCP server in claude_desktop_config.json.
+  Registers Promptic MCP server in claude_desktop_config.json.
   Windows-native Node.js only — uses Windows path format (C:\...).
   Preserves existing config (preferences, other MCP servers).
 
@@ -61,12 +61,12 @@ function Assert-WindowsNode {
     }
 }
 
-# -- build prompatic MCP config object --
-function New-PrompaticConfig {
+# -- build promptic MCP config object --
+function New-PrompticConfig {
     param([string]$CfgMode)
 
     if ($CfgMode -eq 'npx') {
-        return [PSCustomObject]@{ command = 'npx'; args = @('-y', 'prompatic') }
+        return [PSCustomObject]@{ command = 'npx'; args = @('-y', 'promptic') }
     } else {
         return [PSCustomObject]@{ command = 'node'; args = @($ServerPath) }
     }
@@ -147,7 +147,7 @@ function Test-McpServer {
 # MAIN
 # ====================================================
 Write-Host ''
-Write-OK '=== Prompatic - Claude Desktop MCP Setup (Windows) ==='
+Write-OK '=== Promptic - Claude Desktop MCP Setup (Windows) ==='
 Write-Host ''
 Write-Host "  config: " -NoNewline; Write-Warn $ConfigPath
 
@@ -162,22 +162,22 @@ if ($Mode -eq 'check') {
         exit 1
     }
 
-    if (-not $config.mcpServers -or -not $config.mcpServers.prompatic) {
-        Write-Err '  prompatic MCP not configured.'
+    if (-not $config.mcpServers -or -not $config.mcpServers.promptic) {
+        Write-Err '  promptic MCP not configured.'
         Write-Host '  Run setup first.'
         exit 1
     }
 
-    $pl = $config.mcpServers.prompatic
+    $pl = $config.mcpServers.promptic
     Write-Host ''
-    Write-Info '  Current prompatic config:'
+    Write-Info '  Current promptic config:'
     $pl | ConvertTo-Json -Depth 5 | ForEach-Object { Write-Host "    $_" }
 
     $ok = Test-McpServer -Cfg $pl
 
     Write-Host ''
     if ($ok) {
-        Write-OK '  Status: OK. Restart Claude Desktop to use prompatic.'
+        Write-OK '  Status: OK. Restart Claude Desktop to use promptic.'
     } else {
         Write-Err '  Status: FAIL. Check errors above and re-run setup.'
     }
@@ -190,12 +190,12 @@ if ($Mode -eq 'remove') {
     Write-Host ''
 
     $config = Read-ConfigJson
-    if ($config -and $config.mcpServers -and $config.mcpServers.prompatic) {
-        $config.mcpServers.PSObject.Properties.Remove('prompatic')
+    if ($config -and $config.mcpServers -and $config.mcpServers.promptic) {
+        $config.mcpServers.PSObject.Properties.Remove('promptic')
         Save-ConfigJson $config
-        Write-OK '  prompatic config removed.'
+        Write-OK '  promptic config removed.'
     } else {
-        Write-Host '  prompatic config not found. Nothing to remove.'
+        Write-Host '  promptic config not found. Nothing to remove.'
     }
 
     Write-Host ''
@@ -221,7 +221,7 @@ if ($Mode -eq 'npx') {
 }
 
 # build config
-$plConfig = New-PrompaticConfig -CfgMode $Mode
+$plConfig = New-PrompticConfig -CfgMode $Mode
 
 # verify server starts
 $ok = Test-McpServer -Cfg $plConfig
@@ -241,11 +241,11 @@ if (-not $config.mcpServers) {
     $config | Add-Member -NotePropertyName 'mcpServers' -NotePropertyValue ([PSCustomObject]@{})
 }
 
-# update prompatic entry
-if ($config.mcpServers.PSObject.Properties['prompatic']) {
-    $config.mcpServers.PSObject.Properties.Remove('prompatic')
+# update promptic entry
+if ($config.mcpServers.PSObject.Properties['promptic']) {
+    $config.mcpServers.PSObject.Properties.Remove('promptic')
 }
-$config.mcpServers | Add-Member -NotePropertyName 'prompatic' -NotePropertyValue $plConfig
+$config.mcpServers | Add-Member -NotePropertyName 'promptic' -NotePropertyValue $plConfig
 
 # backup
 if (Test-Path $ConfigPath) {
