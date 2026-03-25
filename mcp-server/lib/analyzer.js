@@ -1,5 +1,5 @@
 /**
- * PromptLens — Prompt analyzer
+ * Prompatic — Prompt analyzer
  *
  * Two modes:
  * - local: Rule-based instant scoring (no API key required)

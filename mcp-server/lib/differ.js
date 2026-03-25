@@ -1,5 +1,5 @@
 /**
- * PromptLens — Prompt Diff Utility
+ * Prompatic — Prompt Diff Utility
  * Compares two prompt entries: text diff, score diff, axis diff.
  */
 

@@ -1,8 +1,8 @@
 /**
- * PromptLens — File-based storage (v0.4.0)
+ * Prompatic — File-based storage (v0.4.0)
  *
  * Storage structure:
- *   ~/.promptlens/
+ *   ~/.prompatic/
  *     settings.json              — API key, model
  *     projects/
  *       _index.json              — project list + stats (fast listing)
@@ -20,7 +20,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 
-export const DATA_DIR      = path.join(os.homedir(), '.promptlens');
+export const DATA_DIR      = path.join(os.homedir(), '.prompatic');
 const LEGACY_FILE          = path.join(DATA_DIR, 'data.json');
 const SETTINGS_FILE        = path.join(DATA_DIR, 'settings.json');
 const PROJECTS_DIR         = path.join(DATA_DIR, 'projects');

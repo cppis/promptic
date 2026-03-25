@@ -1,11 +1,11 @@
 {
-  "name": "promptlens-mcp",
+  "name": "prompatic",
   "version": "0.5.4",
-  "description": "PromptLens — AI prompt analysis MCP server for Claude Desktop & Claude Code. Shows how AI reads your prompts with 5-axis scoring and 3-color interpretation reports.",
+  "description": "Prompatic — AI prompt analysis MCP server for Claude Desktop & Claude Code. Shows how AI reads your prompts with 5-axis scoring and 3-color interpretation reports.",
   "type": "module",
   "main": "index.js",
   "bin": {
-    "promptlens-mcp": "./index.js"
+    "prompatic": "./index.js"
   },
   "scripts": {
     "start": "node index.js",

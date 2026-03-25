@@ -1,10 +1,10 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  PromptLens - Claude Desktop MCP setup script (Windows PowerShell)
+  Prompatic - Claude Desktop MCP setup script (Windows PowerShell)
 
 .DESCRIPTION
-  Registers PromptLens MCP server in claude_desktop_config.json.
+  Registers Prompatic MCP server in claude_desktop_config.json.
   Windows-native Node.js only — uses Windows path format (C:\...).
   Preserves existing config (preferences, other MCP servers).
 
@@ -61,12 +61,12 @@ function Assert-WindowsNode {
     }
 }
 
-# -- build promptlens MCP config object --
-function New-PromptLensConfig {
+# -- build prompatic MCP config object --
+function New-PrompaticConfig {
     param([string]$CfgMode)
 
     if ($CfgMode -eq 'npx') {
-        return [PSCustomObject]@{ command = 'npx'; args = @('-y', 'promptlens-mcp') }
+        return [PSCustomObject]@{ command = 'npx'; args = @('-y', 'prompatic') }
     } else {
         return [PSCustomObject]@{ command = 'node'; args = @($ServerPath) }
     }
@@ -147,7 +147,7 @@ function Test-McpServer {
 # MAIN
 # ====================================================
 Write-Host ''
-Write-OK '=== PromptLens - Claude Desktop MCP Setup (Windows) ==='
+Write-OK '=== Prompatic - Claude Desktop MCP Setup (Windows) ==='
 Write-Host ''
 Write-Host "  config: " -NoNewline; Write-Warn $ConfigPath
 
@@ -162,22 +162,22 @@ if ($Mode -eq 'check') {
         exit 1
     }
 
-    if (-not $config.mcpServers -or -not $config.mcpServers.promptlens) {
-        Write-Err '  promptlens MCP not configured.'
+    if (-not $config.mcpServers -or -not $config.mcpServers.prompatic) {
+        Write-Err '  prompatic MCP not configured.'
         Write-Host '  Run setup first.'
         exit 1
     }
 
-    $pl = $config.mcpServers.promptlens
+    $pl = $config.mcpServers.prompatic
     Write-Host ''
-    Write-Info '  Current promptlens config:'
+    Write-Info '  Current prompatic config:'
     $pl | ConvertTo-Json -Depth 5 | ForEach-Object { Write-Host "    $_" }
 
     $ok = Test-McpServer -Cfg $pl
 
     Write-Host ''
     if ($ok) {
-        Write-OK '  Status: OK. Restart Claude Desktop to use promptlens.'
+        Write-OK '  Status: OK. Restart Claude Desktop to use prompatic.'
     } else {
         Write-Err '  Status: FAIL. Check errors above and re-run setup.'
     }
@@ -190,12 +190,12 @@ if ($Mode -eq 'remove') {
     Write-Host ''
 
     $config = Read-ConfigJson
-    if ($config -and $config.mcpServers -and $config.mcpServers.promptlens) {
-        $config.mcpServers.PSObject.Properties.Remove('promptlens')
+    if ($config -and $config.mcpServers -and $config.mcpServers.prompatic) {
+        $config.mcpServers.PSObject.Properties.Remove('prompatic')
         Save-ConfigJson $config
-        Write-OK '  promptlens config removed.'
+        Write-OK '  prompatic config removed.'
     } else {
-        Write-Host '  promptlens config not found. Nothing to remove.'
+        Write-Host '  prompatic config not found. Nothing to remove.'
     }
 
     Write-Host ''
@@ -221,7 +221,7 @@ if ($Mode -eq 'npx') {
 }
 
 # build config
-$plConfig = New-PromptLensConfig -CfgMode $Mode
+$plConfig = New-PrompaticConfig -CfgMode $Mode
 
 # verify server starts
 $ok = Test-McpServer -Cfg $plConfig
@@ -241,11 +241,11 @@ if (-not $config.mcpServers) {
     $config | Add-Member -NotePropertyName 'mcpServers' -NotePropertyValue ([PSCustomObject]@{})
 }
 
-# update promptlens entry
-if ($config.mcpServers.PSObject.Properties['promptlens']) {
-    $config.mcpServers.PSObject.Properties.Remove('promptlens')
+# update prompatic entry
+if ($config.mcpServers.PSObject.Properties['prompatic']) {
+    $config.mcpServers.PSObject.Properties.Remove('prompatic')
 }
-$config.mcpServers | Add-Member -NotePropertyName 'promptlens' -NotePropertyValue $plConfig
+$config.mcpServers | Add-Member -NotePropertyName 'prompatic' -NotePropertyValue $plConfig
 
 # backup
 if (Test-Path $ConfigPath) {

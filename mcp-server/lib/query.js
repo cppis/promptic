@@ -1,5 +1,5 @@
 /**
- * PromptLens — Advanced History Query Engine (v0.4.0)
+ * Prompatic — Advanced History Query Engine (v0.4.0)
  *
  * Supports filtering by:
  *   scoreMin / scoreMax   — score range (inclusive)

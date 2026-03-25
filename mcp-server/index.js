@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 
 /**
- * PromptLens MCP Server (v0.5.1)
+ * Prompatic MCP Server (v0.5.1)
  *
- * MCP-only architecture — all PromptLens features accessible via
+ * MCP-only architecture — all Prompatic features accessible via
  * Claude Desktop and Claude Code as native MCP tools.
  *
  * Transport: stdio
- * Storage: ~/.promptlens/projects/{id}.json (per-project), ~/.promptlens/settings.json (config)
+ * Storage: ~/.prompatic/projects/{id}.json (per-project), ~/.prompatic/settings.json (config)
  *
  * Tools (20):
  *   analyze_prompt          — Prompt quality analysis (local rules or Claude API) + auto-tag
@@ -24,7 +24,7 @@
  *   compare_prompts         — Diff two prompt versions (text, score, axis)
  *   get_versions            — Get version chain for a prompt
  *   export_project          — Export project to JSON/Markdown/CSV file
- *   import_project          — Import a .promptlens.json file into a project
+ *   import_project          — Import a .prompatic.json file into a project
  *   query_history           — Advanced history query with score/date/grade/tag filters
  *   snapshot_project        — Save a timestamped project snapshot + diff between snapshots
  *   batch_analyze           — Analyze multiple prompts at once (v0.5.1)
@@ -51,7 +51,7 @@ import { generateImprovedPrompt, runImprovementLoop } from './lib/improver.js';
 const storage = new Storage();
 
 const server = new McpServer({
-  name: 'promptlens',
+  name: 'prompatic',
   version: '0.5.1'
 });
 
@@ -208,7 +208,7 @@ TRIGGER RULES — call this tool automatically when:
 // ─────────────────────────────────────────────
 server.tool(
   'list_projects',
-  'List all PromptLens projects with their stats (prompt count, average score, trend).',
+  'List all Prompatic projects with their stats (prompt count, average score, trend).',
   {},
   async () => {
     const projects = await storage.getProjects();
@@ -240,7 +240,7 @@ server.tool(
 // ─────────────────────────────────────────────
 server.tool(
   'create_project',
-  'Create a new PromptLens project for organizing prompt history.',
+  'Create a new Prompatic project for organizing prompt history.',
   {
     name: z.string().describe('Project name')
   },
@@ -380,7 +380,7 @@ server.tool(
 // ─────────────────────────────────────────────
 server.tool(
   'get_stats',
-  'Get overall PromptLens statistics: total projects, total prompts, average score, most used tags, score trend.',
+  'Get overall Prompatic statistics: total projects, total prompts, average score, most used tags, score trend.',
   {},
   async () => {
     const projects = await storage.getProjects();
@@ -424,7 +424,7 @@ server.tool(
 // ─────────────────────────────────────────────
 server.tool(
   'set_api_key',
-  'Register or update your Anthropic API key for Claude API analysis mode. The key is stored locally in ~/.promptlens/settings.json. You can also set the preferred model.',
+  'Register or update your Anthropic API key for Claude API analysis mode. The key is stored locally in ~/.prompatic/settings.json. You can also set the preferred model.',
   {
     apiKey: z.string().describe('Anthropic API key (sk-ant-...)'),
     model: z.string().optional().describe('Preferred model for API analysis (default: claude-sonnet-4-5-20250514). Options: claude-sonnet-4-5-20250514, claude-3-5-haiku-20241022, claude-opus-4-0-20250514')
@@ -498,10 +498,10 @@ server.tool(
 // ─────────────────────────────────────────────
 server.tool(
   'get_settings',
-  `View current PromptLens settings: API key status, preferred model, active project, storage location.
+  `View current Prompatic settings: API key status, preferred model, active project, storage location.
 
 TRIGGER RULES — call this tool when:
-- User says "PromptLens 설정 보여줘" / "show PromptLens settings"
+- User says "Prompatic 설정 보여줘" / "show Prompatic settings"
 - User says "지금 활성 프로젝트가 뭐야?" / "what is the active project?" / "현재 활성 프로젝트 알려줘"
 - User says "현재 설정 확인" / "check current settings"
 - User says "API 키 등록됐어?" / "is API key set?"`,
@@ -527,8 +527,8 @@ TRIGGER RULES — call this tool when:
           activeProject: activeProjectId
             ? { id: activeProjectId, name: activeProjectName }
             : null,
-          storagePath: '~/.promptlens/projects/',
-          settingsPath: '~/.promptlens/settings.json',
+          storagePath: '~/.prompatic/projects/',
+          settingsPath: '~/.prompatic/settings.json',
           availableModes: {
             local: 'Free, instant, rule-based 5-axis scoring (always available)',
             api: apiKey ? 'Claude API 3-color report (Referenced/Inferred/Missing)' : 'Requires API key — use set_api_key first'
@@ -724,17 +724,17 @@ server.tool(
 // ─────────────────────────────────────────────
 server.tool(
   'visualize_project',
-  'Generate an HTML dashboard with charts for a project or all projects. Includes score trend line chart, 5-axis radar chart, grade distribution donut, tag statistics bar chart, and recent analysis table. The HTML file is saved to ~/.promptlens/ and can be opened in a browser. When the user says ">> viz" or ">> 시각화", generate a dashboard for the most recently active project.',
+  'Generate an HTML dashboard with charts for a project or all projects. Includes score trend line chart, 5-axis radar chart, grade distribution donut, tag statistics bar chart, and recent analysis table. The HTML file is saved to ~/.prompatic/ and can be opened in a browser. When the user says ">> viz" or ">> 시각화", generate a dashboard for the most recently active project.',
   {
     projectId: z.string().optional().describe('Project ID to visualize. If omitted, generates an overview dashboard for all projects.'),
-    outputPath: z.string().optional().describe('Custom output file path. Default: ~/.promptlens/dashboard-{projectId}.html')
+    outputPath: z.string().optional().describe('Custom output file path. Default: ~/.prompatic/dashboard-{projectId}.html')
   },
   async ({ projectId, outputPath }) => {
     const fs = await import('fs');
     const path = await import('path');
     const os = await import('os');
 
-    const dataDir = path.join(os.homedir(), '.promptlens');
+    const dataDir = path.join(os.homedir(), '.prompatic');
     let html, filePath;
 
     if (projectId) {
@@ -803,7 +803,7 @@ server.tool(
   {
     projectId:  z.string().describe('Project ID to export'),
     format:     z.enum(['json', 'markdown', 'csv']).optional().describe('Export format. Default: json'),
-    outputPath: z.string().optional().describe('File save path. Default: ~/.promptlens/exports/{name}-{date}.{ext}'),
+    outputPath: z.string().optional().describe('File save path. Default: ~/.prompatic/exports/{name}-{date}.{ext}'),
     scoreMin:   z.number().optional().describe('Export only entries with score >= this value'),
     scoreMax:   z.number().optional().describe('Export only entries with score <= this value'),
     grade:      z.array(z.enum(['A','B','C','D'])).optional().describe('Export only entries with these grades'),
@@ -826,7 +826,7 @@ server.tool(
     let ext;
     if (format === 'markdown') { content = toMarkdown(raw.project, entries); ext = 'md'; }
     else if (format === 'csv') { content = toCsv(raw.project, entries);      ext = 'csv'; }
-    else                       { content = toJson(raw.project, entries);      ext = 'promptlens.json'; }
+    else                       { content = toJson(raw.project, entries);      ext = 'prompatic.json'; }
 
     // Determine output path (restrict to DATA_DIR subtree for security)
     const safeName = raw.project.name.replace(/[^a-zA-Z0-9가-힣_-]/g, '-');
@@ -862,9 +862,9 @@ server.tool(
 // ─────────────────────────────────────────────
 server.tool(
   'import_project',
-  'Import a .promptlens.json file into PromptLens. Two modes: "new" creates a fresh project, "merge" appends entries to an existing project (deduplication by entry ID). When the user says "import", "가져와줘", or references a .promptlens.json file, call this tool.',
+  'Import a .prompatic.json file into Prompatic. Two modes: "new" creates a fresh project, "merge" appends entries to an existing project (deduplication by entry ID). When the user says "import", "가져와줘", or references a .prompatic.json file, call this tool.',
   {
-    filePath:    z.string().describe('Path to the .promptlens.json file to import'),
+    filePath:    z.string().describe('Path to the .prompatic.json file to import'),
     mode:        z.enum(['new', 'merge']).optional().describe('"new" creates a new project (default), "merge" appends to an existing project with the same ID'),
     projectName: z.string().optional().describe('Override project name when using "new" mode')
   },
@@ -1104,7 +1104,7 @@ server.prompt(
       role: 'user',
       content: {
         type: 'text',
-        text: `다음 프롬프트를 PromptLens로 분석해줘 (local 모드):\n\n"${prompt}"\n\n5축 점수, 누락 요소, 개선 제안을 보여주고, 개선된 프롬프트도 제안해줘.`
+        text: `다음 프롬프트를 Prompatic로 분석해줘 (local 모드):\n\n"${prompt}"\n\n5축 점수, 누락 요소, 개선 제안을 보여주고, 개선된 프롬프트도 제안해줘.`
       }
     }]
   })
@@ -1122,7 +1122,7 @@ server.prompt(
       role: 'user',
       content: {
         type: 'text',
-        text: `다음 프롬프트를 PromptLens로 정밀 분석하고 개선해줘:\n\n"${prompt}"\n\n1단계: analyze_prompt로 분석해줘.\n2단계: 분석 결과의 누락 요소를 모두 채운 개선된 프롬프트를 작성해줘.\n3단계: 개선된 프롬프트도 analyze_prompt로 다시 분석해서 점수 변화를 비교해줘.${project ? `\n4단계: 두 결과를 "${project}" 프로젝트에 저장해줘 (개선본은 parentId로 연결).` : ''}`
+        text: `다음 프롬프트를 Prompatic로 정밀 분석하고 개선해줘:\n\n"${prompt}"\n\n1단계: analyze_prompt로 분석해줘.\n2단계: 분석 결과의 누락 요소를 모두 채운 개선된 프롬프트를 작성해줘.\n3단계: 개선된 프롬프트도 analyze_prompt로 다시 분석해서 점수 변화를 비교해줘.${project ? `\n4단계: 두 결과를 "${project}" 프로젝트에 저장해줘 (개선본은 parentId로 연결).` : ''}`
       }
     }]
   })
@@ -1139,7 +1139,7 @@ server.prompt(
       role: 'user',
       content: {
         type: 'text',
-        text: `PromptLens의 "${project}" 프로젝트 대시보드를 생성해줘. visualize_project 도구를 사용하여 HTML 리포트를 만들고, 주요 통계(평균 점수, 최고/최저, 개선 추이)를 요약해줘.`
+        text: `Prompatic의 "${project}" 프로젝트 대시보드를 생성해줘. visualize_project 도구를 사용하여 HTML 리포트를 만들고, 주요 통계(평균 점수, 최고/최저, 개선 추이)를 요약해줘.`
       }
     }]
   })

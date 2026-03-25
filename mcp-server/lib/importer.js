@@ -1,5 +1,5 @@
 /**
- * PromptLens — Claude conversation importer for MCP Server
+ * Prompatic — Claude conversation importer for MCP Server
  *
  * Imports from:
  * - Claude Desktop: conversations.json (array of conversations with chat_messages)

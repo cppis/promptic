@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# PromptLens — Claude Desktop MCP 설정 스크립트
+# Prompatic — Claude Desktop MCP 설정 스크립트
 #
 # 사용법:
 #   ./scripts/setup-claude-desktop.sh          # 로컬 소스 모드 (개발용)
@@ -82,26 +82,26 @@ merge_config() {
     if (mode === 'npx') {
       if (isWsl) {
         // WSL: Windows 쪽 Claude Desktop이 wsl 명령어로 npx를 호출하도록 설정
-        config.mcpServers.promptlens = {
+        config.mcpServers.prompatic = {
           command: 'wsl',
-          args: ['npx', '-y', 'promptlens-mcp']
+          args: ['npx', '-y', 'prompatic']
         };
       } else {
-        config.mcpServers.promptlens = {
+        config.mcpServers.prompatic = {
           command: 'npx',
-          args: ['-y', 'promptlens-mcp']
+          args: ['-y', 'prompatic']
         };
       }
     } else {
       if (isWsl) {
         // WSL: Windows 쪽 Claude Desktop이 wsl 명령어로 node를 호출하도록 설정
         // WSL 리눅스 경로를 그대로 사용 (wsl 내부에서 해석됨)
-        config.mcpServers.promptlens = {
+        config.mcpServers.prompatic = {
           command: 'wsl',
           args: ['node', serverPath]
         };
       } else {
-        config.mcpServers.promptlens = {
+        config.mcpServers.prompatic = {
           command: 'node',
           args: [serverPath]
         };
@@ -113,7 +113,7 @@ merge_config() {
     fs.mkdirSync(dir, { recursive: true });
 
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
-    console.log(JSON.stringify(config.mcpServers.promptlens, null, 2));
+    console.log(JSON.stringify(config.mcpServers.prompatic, null, 2));
   "
 }
 
@@ -132,12 +132,12 @@ remove_config() {
       process.exit(0);
     }
 
-    if (config.mcpServers && config.mcpServers.promptlens) {
-      delete config.mcpServers.promptlens;
+    if (config.mcpServers && config.mcpServers.prompatic) {
+      delete config.mcpServers.prompatic;
       fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
       console.log('삭제 완료');
     } else {
-      console.log('promptlens 설정이 없습니다.');
+      console.log('prompatic 설정이 없습니다.');
     }
   "
 }
@@ -159,7 +159,7 @@ if is_wsl; then
 fi
 
 echo ""
-echo -e "${GREEN}PromptLens — Claude Desktop MCP 설정${NC}"
+echo -e "${GREEN}Prompatic — Claude Desktop MCP 설정${NC}"
 echo ""
 echo -e "  config: ${YELLOW}${CONFIG_PATH}${NC}"
 if [ "$WSL_ENV" = "true" ]; then
