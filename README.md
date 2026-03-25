@@ -124,9 +124,11 @@ Promptic is **triggered automatically** when it detects any of the following:
 | 1 | **Command `>> anz` / `>> 분석`** | `Build a login form in React >> anz` |
 | 2 | **Command `>> anz+run` / `>> 분석+실행`** | `Design a REST API >> anz+run` |
 | 3 | **Command `>> deep` / `>> 정밀분석`** | `Design a system >> deep` |
-| 4 | **English natural language** | `analyze this prompt`, `how good is this`, `review this prompt` |
-| 5 | **Korean natural language** | `이 프롬프트 분석해줘`, `이 프롬프트 어때?`, `프롬프트 좀 봐줘` |
-| 6 | **Implicit improvement request** | `what's wrong with this`, `how can I improve this` |
+| 4 | **Command `>> re` / `>> v2`** | `>> re` (set previous entryId as parentId) |
+| 5 | **Command `>> last N`** | `>> last 2` (reference 2nd most recent entry, N: 1–10) |
+| 6 | **English natural language** | `analyze this prompt`, `how good is this`, `review this prompt` |
+| 7 | **Korean natural language** | `이 프롬프트 분석해줘`, `이 프롬프트 어때?`, `프롬프트 좀 봐줘` |
+| 8 | **Implicit improvement request** | `what's wrong with this`, `how can I improve this` |
 
 > For rules #1–3, append the command at the end of your message. Everything before it is treated as the prompt to analyze.
 
@@ -134,9 +136,11 @@ Command behavior comparison:
 
 | Command | Behavior |
 |---------|----------|
-| `>> anz` / `>> 분석` | Returns analysis + improvement suggestions |
+| `>> anz` / `>> 분석` | Returns score, missing elements, and an **enhanced prompt block** (ready to copy) |
 | `>> anz+run` / `>> 분석+실행` | Analyzes, then **immediately executes** the improved prompt |
 | `>> deep` / `>> 정밀분석` | Full 4-step pipeline: analyze → improve → re-analyze → compare |
+| `>> re` / `>> v2` | Sets the previous entryId as parentId for version chaining |
+| `>> last N` | Sets the Nth most recent entryId as parentId (N: 1–10, no entryId lookup needed) |
 
 ### Token Usage Guide
 
@@ -204,11 +208,21 @@ Promptic responds automatically:
 
 Type `/` in the Claude Desktop chat input to access Promptic workflow presets:
 
-| Preset | Description |
-|--------|-------------|
-| `quick-analyze` | Fast 5-axis analysis + improvement suggestions |
-| `deep-analyze` | Full 4-step deep analysis pipeline |
-| `project-report` | Generate project dashboard + statistics summary |
+**General:**
+
+| Preset | Description | Arguments |
+|--------|-------------|-----------|
+| `quick-analyze` | Fast 5-axis analysis + enhanced prompt block | `prompt` (required) |
+| `deep-analyze` | API-mode deep analysis (API key required) | `prompt` (required) |
+| `project-report` | Project statistics + dashboard generation | `projectId` (optional) |
+
+**Domain-specific:**
+
+| Preset | Description | Arguments |
+|--------|-------------|-----------|
+| `code-review` | Build a code review prompt + analyze quality | `language` (required), `context` (optional) |
+| `doc-writing` | Build a technical doc prompt + analyze quality | `docType` (required), `audience` (optional) |
+| `system-design` | Build a system design prompt + analyze quality | `system` (required), `constraints` (optional) |
 
 ---
 
@@ -227,6 +241,8 @@ Type `/` in the Claude Desktop chat input to access Promptic workflow presets:
 | Analyze + run immediately | `... >> anz+run` or `... >> 분석+실행` |
 | Deep analysis (4-step) | `... >> deep` or `... >> 정밀분석` |
 | Analyze via natural language | `"Analyze this prompt: ..."` |
+| Re-analyze previous prompt | `>> re` or `>> v2` |
+| Reference Nth recent entry | `>> last N` (e.g. `>> last 2`) |
 | Create a project | `"Create a project called 'my-project' in Promptic"` |
 | Set active project | `"Set 'my-project' as the active project"` |
 | Visualize project | `... >> viz` or `... >> 시각화` |
