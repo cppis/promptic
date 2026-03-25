@@ -1,6 +1,6 @@
 {
   "name": "@cppis/promptic",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Promptic MCP Server — prompt quality analysis, history management, and project version tracking",
   "main": "index.js",
   "type": "module",
