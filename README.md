@@ -216,8 +216,7 @@ Type `/` in the Claude Desktop chat input to access Prompatic workflow presets:
 
 | Document | Contents |
 |----------|----------|
-| [Advanced Usage Guide](docs/3.usage.advanced.md) | Project management, version control, visualization, API mode, local storage |
-| [Usage Guide](docs/3.usage.md) | Tool parameters, usage scenarios, FAQ |
+| [Usage Guide](docs/3.usage.md) | Tool parameters, usage scenarios, project management, version control, visualization, API mode, FAQ |
 | [Project Overview](docs/0.overview.md) | Architecture, roadmap |
 
 ### Quick Command Reference
@@ -233,4 +232,4 @@ Type `/` in the Claude Desktop chat input to access Prompatic workflow presets:
 | Visualize project | `... >> viz` or `... >> 시각화` |
 | Compare prompts | `... >> diff` |
 
-For the full command list, see the [Advanced Usage Guide](docs/3.usage.advanced.md#quick-command-reference).
+For the full command list, see the [Usage Guide](docs/3.usage.md#전체-명령-모음).

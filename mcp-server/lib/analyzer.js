@@ -1,262 +1,167 @@
 /**
- * Prompatic — Prompt analyzer
+ * 로컬 5축 프롬프트 분석 엔진 (규칙 기반).
+ * API 키 없이 즉시 실행 가능하다.
  *
- * Two modes:
- * - local: Rule-based instant scoring (no API key required)
- * - api: Claude API meta-analysis with 3-color report (Referenced/Inferred/Missing)
- *
- * Scores across 5 axes: clarity, specificity, context, structure, actionability.
+ * 5축: clarity, completeness, specificity, context, output_format
+ * 각 축은 0~100점. 종합 점수는 가중 평균.
+ * 등급: A(80~100), B(60~79), C(40~59), D(0~39)
  */
 
+// 모호한 표현 패턴 — clarity 감점 요소
+const VAGUE_PATTERNS = [
+  /\b(something|anything|whatever|somehow|etc|etc\.|some kind of)\b/i,
+  /\b(좀|그냥|아무거나|뭔가|어떻게든|기타|뭐든)\b/,
+  /\.{3,}/,         // 말줄임표 과다 사용
+];
+
+// 역할/페르소나 패턴 — completeness
 const ROLE_PATTERNS = [
-  /you are/i, /act as/i, /역할/i, /전문가/i, /expert/i, /specialist/i,
-  /as a/i, /role:/i, /persona/i
+  /\b(you are|act as|role of|as a|as an)\b/i,
+  /\b(당신은|너는|전문가로서|역할을|~로서|~로 행동)\b/,
 ];
 
-const CONTEXT_PATTERNS = [
-  /background/i, /배경/i, /현재/i, /상황/i, /currently/i, /환경/i,
-  /project/i, /프로젝트/i, /기존/i, /legacy/i, /이전/i, /because/i
-];
-
+// 출력 형식 지정 패턴 — output_format
 const FORMAT_PATTERNS = [
-  /format/i, /형식/i, /table/i, /표/i, /json/i, /markdown/i, /list/i,
-  /bullet/i, /step by step/i, /단계/i, /목록/i, /csv/i
+  /\b(in (json|yaml|xml|csv|markdown|table|list|bullet|numbered|html))\b/i,
+  /\b(format|formatted|output|return|respond with|provide)\b/i,
+  /\b(json|yaml|xml|csv|markdown|표|목록|리스트|번호|형식|포맷|반환|출력)\b/i,
 ];
 
+// 예시 제공 패턴 — specificity
 const EXAMPLE_PATTERNS = [
-  /example/i, /예시/i, /예를 들/i, /for instance/i, /e\.g\./i,
-  /such as/i, /like this/i, /sample/i
+  /\b(for example|e\.g\.|such as|like|sample|example)\b/i,
+  /\b(예를 들어|예시|예:|가령|처럼|같은)\b/,
+  /```[\s\S]*?```/,  // 코드 블록
 ];
 
-const CONSTRAINT_PATTERNS = [
-  /must not/i, /하지 마/i, /avoid/i, /제외/i, /limit/i, /제한/i,
-  /only/i, /만/i, /don't/i, /금지/i, /within/i, /이내/i
+// 컨텍스트/배경 패턴 — context
+const CONTEXT_PATTERNS = [
+  /\b(context|background|because|since|given that|assuming|scenario)\b/i,
+  /\b(상황|배경|맥락|왜냐하면|이유는|전제|가정하면|시나리오)\b/,
 ];
 
-const SPECIFICITY_INDICATORS = [
-  /\d+/, /\b\d+\s*(개|건|초|분|시간|일|줄|글자)\b/, /specifically/i,
-  /구체적/i, /정확히/i, /exactly/i
+// 구체적 지시 패턴 — specificity
+const SPECIFIC_PATTERNS = [
+  /\b(specifically|exactly|precisely|must|should|need to|step by step)\b/i,
+  /\b(구체적으로|정확히|반드시|꼭|단계별로|상세히)\b/,
+  /\b(\d+\s*(steps?|단계|개|가지|항목))\b/i,
+];
+
+// 자동 태그 규칙 (로컬 모드)
+const TAG_RULES = [
+  { keywords: [/번역|translate/i], tag: '#translate' },
+  { keywords: [/요약|summarize|summary/i], tag: '#summarize' },
+  { keywords: [/코드|code|function|함수|프로그램|program/i], tag: '#coding' },
+  { keywords: [/json|yaml|xml|csv/i], tag: '#structured' },
+  { keywords: [/분석|analyze|analysis/i], tag: '#analysis' },
+  { keywords: [/작성|쓰|write|writing|글|essay|article/i], tag: '#writing' },
+  { keywords: [/데이터|data|dataset/i], tag: '#data' },
+  { keywords: [/창작|창의|creative|story|소설|fiction/i], tag: '#creative' },
+  { keywords: [/설명|explain|explanation/i], tag: '#explain' },
+  { keywords: [/리뷰|review|검토|평가/i], tag: '#review' },
+  { keywords: [/생성|generate|만들어/i], tag: '#generate' },
+  { keywords: [/list|목록|bullet|표|table/i], tag: '#list' },
 ];
 
 function countMatches(text, patterns) {
-  return patterns.filter(p => p.test(text)).length;
+  return patterns.reduce((n, p) => n + (p.test(text) ? 1 : 0), 0);
 }
 
-export function analyzePrompt(prompt) {
+/**
+ * 프롬프트 텍스트를 로컬 규칙으로 5축 분석한다.
+ * @param {string} prompt
+ * @returns {{ scores, grade, totalScore, missingElements, suggestedTags }}
+ */
+export function analyzeLocal(prompt) {
   const len = prompt.length;
-  const wordCount = prompt.split(/\s+/).filter(Boolean).length;
-  const sentenceCount = prompt.split(/[.!?。！？\n]+/).filter(s => s.trim()).length;
+  const wordCount = prompt.trim().split(/\s+/).length;
 
-  // Detect elements
-  const hasRole = countMatches(prompt, ROLE_PATTERNS) > 0;
-  const hasContext = countMatches(prompt, CONTEXT_PATTERNS) > 0;
-  const hasFormat = countMatches(prompt, FORMAT_PATTERNS) > 0;
-  const hasExample = countMatches(prompt, EXAMPLE_PATTERNS) > 0;
-  const hasConstraint = countMatches(prompt, CONSTRAINT_PATTERNS) > 0;
-  const specificityHits = countMatches(prompt, SPECIFICITY_INDICATORS);
+  // ── clarity (명확성) ──────────────────────────────────────
+  // 모호한 표현이 적고, 문장이 잘 구성되어 있을수록 높다.
+  const vagueCount = countMatches(prompt, VAGUE_PATTERNS);
+  const clarityBase = Math.min(100, 50 + (wordCount >= 10 ? 20 : 0) + (wordCount >= 30 ? 10 : 0));
+  const clarity = Math.max(0, clarityBase - vagueCount * 15);
 
-  // ── Axis scores (0-100) ──
+  // ── completeness (완전성) ─────────────────────────────────
+  // 역할, 태스크, 컨텍스트, 출력 형식이 있을수록 높다.
+  let completenessScore = 20; // 기본 — 최소한 프롬프트 텍스트가 있음
+  if (countMatches(prompt, ROLE_PATTERNS) > 0)    completenessScore += 25;
+  if (len > 50)                                    completenessScore += 15;
+  if (countMatches(prompt, CONTEXT_PATTERNS) > 0)  completenessScore += 20;
+  if (countMatches(prompt, FORMAT_PATTERNS) > 0)   completenessScore += 20;
+  const completeness = Math.min(100, completenessScore);
 
-  // Clarity: sentence structure, length, not too short/long
-  let clarity = 50;
-  if (sentenceCount >= 2) clarity += 15;
-  if (sentenceCount >= 4) clarity += 10;
-  if (wordCount >= 10 && wordCount <= 200) clarity += 15;
-  if (hasConstraint) clarity += 10;
-  clarity = Math.min(100, clarity);
+  // ── specificity (구체성) ──────────────────────────────────
+  // 구체적 지시어, 예시, 수치가 있을수록 높다.
+  let specificityScore = 20;
+  specificityScore += Math.min(40, countMatches(prompt, SPECIFIC_PATTERNS) * 15);
+  specificityScore += Math.min(30, countMatches(prompt, EXAMPLE_PATTERNS) * 15);
+  specificityScore += wordCount >= 50 ? 10 : 0;
+  const specificity = Math.min(100, specificityScore);
 
-  // Specificity: numbers, exact terms, concrete requirements
-  let specificity = 30;
-  specificity += specificityHits * 15;
-  if (wordCount >= 20) specificity += 10;
-  if (hasExample) specificity += 15;
-  specificity = Math.min(100, specificity);
+  // ── context (컨텍스트) ────────────────────────────────────
+  let contextScore = 20;
+  contextScore += Math.min(50, countMatches(prompt, CONTEXT_PATTERNS) * 20);
+  contextScore += len > 100 ? 20 : 0;
+  contextScore += len > 300 ? 10 : 0;
+  const context = Math.min(100, contextScore);
 
-  // Context: background info, project details
-  let context = 30;
-  if (hasContext) context += 30;
-  if (hasRole) context += 20;
-  if (len > 100) context += 10;
-  if (len > 300) context += 10;
-  context = Math.min(100, context);
+  // ── output_format (출력 형식) ─────────────────────────────
+  let formatScore = 20;
+  formatScore += Math.min(80, countMatches(prompt, FORMAT_PATTERNS) * 25);
+  const output_format = Math.min(100, formatScore);
 
-  // Structure: clear sections, formatting hints
-  let structure = 30;
-  if (hasFormat) structure += 25;
-  if (sentenceCount >= 3) structure += 15;
-  if (prompt.includes('\n')) structure += 15;
-  if (hasConstraint) structure += 15;
-  structure = Math.min(100, structure);
+  // ── 종합 점수 (가중 평균) ─────────────────────────────────
+  const weights = { clarity: 0.25, completeness: 0.25, specificity: 0.20, context: 0.15, output_format: 0.15 };
+  const totalScore = Math.round(
+    clarity * weights.clarity +
+    completeness * weights.completeness +
+    specificity * weights.specificity +
+    context * weights.context +
+    output_format * weights.output_format
+  );
 
-  // Actionability: can AI execute immediately?
-  let actionability = 40;
-  if (hasRole) actionability += 15;
-  if (hasFormat) actionability += 15;
-  if (hasContext) actionability += 10;
-  if (hasExample) actionability += 10;
-  if (hasConstraint) actionability += 10;
-  actionability = Math.min(100, actionability);
+  // ── 등급 ────────────────────────────────────────────────
+  const grade = totalScore >= 80 ? 'A' : totalScore >= 60 ? 'B' : totalScore >= 40 ? 'C' : 'D';
 
-  const axisScores = [clarity, specificity, context, structure, actionability];
-  const score = Math.round(axisScores.reduce((s, v) => s + v, 0) / 5);
+  // ── 누락 요소 식별 ─────────────────────────────────────
+  const missingElements = [];
+  if (clarity < 60)       missingElements.push('명확한 언어 사용 (모호한 표현 제거)');
+  if (completeness < 60)  missingElements.push('역할/페르소나 정의');
+  if (context < 60)       missingElements.push('배경 및 컨텍스트 정보');
+  if (output_format < 60) missingElements.push('출력 형식 명시');
+  if (specificity < 60)   missingElements.push('구체적 지시사항 또는 예시');
 
-  // ── Missing elements ──
-  const missing = [];
-  if (!hasRole) missing.push({ element: 'Role', suggestion: 'Add "You are a [role]..." to define AI persona' });
-  if (!hasContext) missing.push({ element: 'Context', suggestion: 'Add background information about your project/situation' });
-  if (!hasFormat) missing.push({ element: 'Output Format', suggestion: 'Specify desired format: table, list, JSON, step-by-step, etc.' });
-  if (!hasExample) missing.push({ element: 'Example', suggestion: 'Include an example of expected input/output' });
-  if (!hasConstraint) missing.push({ element: 'Constraints', suggestion: 'Add limitations: length, style, things to avoid' });
+  // ── 자동 태그 추천 ─────────────────────────────────────
+  const suggestedTags = TAG_RULES
+    .filter(rule => rule.keywords.some(k => k.test(prompt)))
+    .map(rule => rule.tag);
 
-  // ── Grade ──
-  let grade;
-  if (score >= 90) grade = 'A';
-  else if (score >= 80) grade = 'B+';
-  else if (score >= 70) grade = 'B';
-  else if (score >= 60) grade = 'C+';
-  else if (score >= 50) grade = 'C';
-  else grade = 'D';
-
-  // ── Enhancement suggestions ──
-  const suggestions = [];
-  if (!hasRole) suggestions.push('Prepend a role: "You are a senior [domain] expert..."');
-  if (!hasContext) suggestions.push('Add context: "I\'m working on [project] using [tech stack]..."');
-  if (!hasFormat) suggestions.push('Specify output format: "Present as a table with columns: ..."');
-  if (specificity < 50) suggestions.push('Add specific numbers, names, or constraints');
-  if (!hasExample) suggestions.push('Include a concrete example of desired output');
-
-  // ── Enhanced prompt (auto-generated) ──
-  let enhanced = prompt;
-  if (!hasRole && !hasContext) {
-    enhanced = `[Consider adding: role definition and project context]\n\n${prompt}`;
-    if (!hasFormat) {
-      enhanced += '\n\n[Consider adding: desired output format]';
-    }
-  }
-
-  const summary = `Score: ${score}/100 (${grade}). Found: ${5 - missing.length}/5 elements. Missing: ${missing.map(m => m.element).join(', ') || 'none'}.`;
+  // missingElements 기반 품질 힌트 태그
+  if (missingElements.length === 0) suggestedTags.push('#well-defined');
+  else if (missingElements.length >= 3) suggestedTags.push('#needs-context');
+  if (vagueCount > 0) suggestedTags.push('#ambiguous');
 
   return {
-    mode: 'local',
-    score,
+    scores: {
+      clarity: Math.round(clarity),
+      completeness: Math.round(completeness),
+      specificity: Math.round(specificity),
+      context: Math.round(context),
+      output_format: Math.round(output_format),
+    },
+    totalScore,
     grade,
-    axisScores,
-    axisLabels: ['Clarity', 'Specificity', 'Context', 'Structure', 'Actionability'],
-    missing,
-    suggestions,
-    enhanced,
-    summary,
-    stats: { characters: len, words: wordCount, sentences: sentenceCount }
+    missingElements,
+    suggestedTags: [...new Set(suggestedTags)],
   };
 }
 
-// ── Claude API Meta-Analysis (3-color report) ──
-
-const ANALYSIS_SYSTEM_PROMPT = `당신은 프롬프트 분석 전문가입니다.
-사용자가 AI에게 보낼 프롬프트를 받으면, 그 프롬프트를 AI의 관점에서 분석하여
-다음 3가지 카테고리로 분류하세요.
-
-1. referenced (참조됨):
-   프롬프트에서 명시적으로 언급된 용어와 개념.
-   AI가 해당 단어를 보고 구체적 의미를 특정할 수 있는 것.
-   - 각 항목: { "term": "용어", "explanation": "AI가 이 용어를 어떻게 이해했는지" }
-
-2. inferred (추론됨):
-   프롬프트에 직접 쓰여 있지 않지만, referenced 항목들과 일반적 맥락에서
-   AI가 유추할 수밖에 없는 배경 정보.
-   - 각 항목: { "term": "추론 내용", "explanation": "추론 근거", "confidence": "high|medium|low" }
-
-3. missing (부재):
-   AI가 좋은 답변을 하려면 알아야 하지만, 프롬프트에도 없고 추론으로도
-   확정할 수 없는 정보.
-   - 각 항목: { "field": "부재 정보명", "suggestion": "사용자에게 보여줄 보충 가이드" }
-
-4. enhancedPrompt:
-   부재 정보를 보충하고 구조를 개선한 버전의 프롬프트.
-
-반드시 유효한 JSON 형식으로만 응답하세요:
-{
-  "referenced": [...],
-  "inferred": [...],
-  "missing": [...],
-  "enhancedPrompt": "..."
-}`;
-
-export async function analyzePromptWithApi(prompt, apiKey, model = 'claude-sonnet-4-5-20250514') {
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json'
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 2048,
-      system: ANALYSIS_SYSTEM_PROMPT,
-      messages: [{
-        role: 'user',
-        content: `다음 프롬프트를 분석하라:\n\n${prompt}`
-      }]
-    })
-  });
-
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`API error ${response.status}: ${err}`);
-  }
-
-  const result = await response.json();
-  const text = result.content[0].text;
-
-  let analysis;
-  try {
-    analysis = JSON.parse(text);
-  } catch {
-    // Try to extract JSON from markdown code block
-    const match = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (match) {
-      analysis = JSON.parse(match[1].trim());
-    } else {
-      throw new Error('Failed to parse API response as JSON');
-    }
-  }
-
-  // Compute score from analysis
-  const refCount = (analysis.referenced || []).length;
-  const infCount = (analysis.inferred || []).length;
-  const misCount = (analysis.missing || []).length;
-  const total = refCount + infCount + misCount;
-  const score = total > 0 ? Math.round((refCount / total) * 100) : 50;
-
-  let grade;
-  if (score >= 90) grade = 'A';
-  else if (score >= 80) grade = 'B+';
-  else if (score >= 70) grade = 'B';
-  else if (score >= 60) grade = 'C+';
-  else if (score >= 50) grade = 'C';
-  else grade = 'D';
-
-  // Also run local analysis for axis scores
-  const local = analyzePrompt(prompt);
-
-  return {
-    mode: 'api',
-    score,
-    grade,
-    axisScores: local.axisScores,
-    axisLabels: local.axisLabels,
-    referenced: analysis.referenced || [],
-    inferred: analysis.inferred || [],
-    missing: analysis.missing || [],
-    enhancedPrompt: analysis.enhancedPrompt || '',
-    suggestions: local.suggestions,
-    summary: `Score: ${score}/100 (${grade}). Referenced: ${refCount}, Inferred: ${infCount}, Missing: ${misCount}.`,
-    stats: local.stats,
-    usage: {
-      inputTokens: result.usage?.input_tokens || 0,
-      outputTokens: result.usage?.output_tokens || 0,
-      model
-    }
-  };
+/**
+ * 점수 변화 요약 문자열 반환.
+ */
+export function formatScoreDelta(before, after) {
+  const delta = after - before;
+  const sign = delta > 0 ? '+' : '';
+  return `${before} → ${after} (${sign}${delta})`;
 }
